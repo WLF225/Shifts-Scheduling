@@ -16,8 +16,25 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import include, path
+from rest_framework import routers
+from rest_framework_nested.routers import NestedDefaultRouter
+
+from mysite.schemas import BrandSchema
+from mysite.views import EmployeeViewSet, BrandViewSet
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/', include('authentication.urls')),
 ]
+
+router = routers.DefaultRouter()
+router.register('employees', EmployeeViewSet, basename='employees')
+router.register('brands', BrandViewSet, basename='brands')
+
+
+employees_router = NestedDefaultRouter(router, 'brands', lookup='brand')
+employees_router.register('employees', EmployeeViewSet, basename='brand-employees')
+
+urlpatterns += router.urls
+urlpatterns += employees_router.urls
+

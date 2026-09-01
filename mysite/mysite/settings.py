@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
     # Not a Django ORM app - registered so its management commands and
     # views are discoverable. Persistence is SQLAlchemy throughout.
     'authentication',
