@@ -47,6 +47,11 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # SQLAlchemy scoped session teardown - must wrap anything that queries,
+    # otherwise the scoped session leaks state between requests.
+    'middleware.db_session.DbSessionMiddleware',
+    # Request/response logger, writes to Logs.txt.
+    'middleware.Middleware.SimpleMiddleware',
 ]
 
 ROOT_URLCONF = 'mysite.urls'
