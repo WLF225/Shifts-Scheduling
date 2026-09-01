@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Not a Django ORM app - registered so its management commands and
+    # views are discoverable. Persistence is SQLAlchemy throughout.
+    'authentication',
 ]
 
 MIDDLEWARE = [
@@ -47,6 +50,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Resolves 'Authorization: Bearer <access token>' into request.manager.
+    # Leaves request.manager = None when absent; @login_required enforces.
+    'authentication.middleware.BearerAuthMiddleware',
 ]
 
 ROOT_URLCONF = 'mysite.urls'

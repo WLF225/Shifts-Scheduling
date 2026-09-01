@@ -1,4 +1,4 @@
-from marshmallow import fields, pre_dump
+from marshmallow import Schema, fields, pre_dump, validate
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
 
 from database.engine import session
@@ -9,7 +9,8 @@ from database.models import (
     Shift,
     Job,
     Position,
-    Schedule
+    Schedule,
+    Manager,
 )
 
 
@@ -67,3 +68,34 @@ class ShiftSchema(SQLAlchemyAutoSchema):
         sqla_session = session
         load_instance = True
         include_fk = True
+
+
+class ManagerSchema(SQLAlchemyAutoSchema):
+    """Serialises a manager. ``password_hash`` is never exposed."""
+
+    class Meta:
+        model = Manager
+        sqla_session = session
+        load_instance = True
+        include_fk = True
+        exclude = ("password_hash",)
+
+
+class RegisterSchema(Schema):
+    """Validates the register payload. ``password`` is load_only, so it can
+    never be echoed back in a response."""
+
+    username = fields.Str(required=True, validate=validate.Length(min=3, max=100))
+    email = fields.Email(required=False, allow_none=True)
+    password = fields.Str(
+        required=True, load_only=True, validate=validate.Length(min=8, max=128)
+    )
+
+
+class LoginSchema(Schema):
+    username = fields.Str(required=True)
+    password = fields.Str(required=True, load_only=True)
+
+
+class RefreshSchema(Schema):
+    refresh_token = fields.Str(required=True)

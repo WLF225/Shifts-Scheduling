@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+.venv/
+venv/
+
+.idea/
+
+# Runtime artefacts
+Logs.txt
+db.sqlite3
