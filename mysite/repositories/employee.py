@@ -16,7 +16,7 @@ class EmployeeRepository(BaseRepository[Employee]):
             self.session.query(Employee)
             .join(Job, Job.employee_id==Employee.id)
             .filter(Job.brand_id == brand_pk)
-            .distinct(Employee.employee_id).all()
+            .distinct(Employee.id).all()
         )
 
     def employee_for_brand(self, brand_pk: int, employee_pk: int) -> Employee | None:
@@ -25,7 +25,7 @@ class EmployeeRepository(BaseRepository[Employee]):
         return (
             self.session.query(Employee)
             .join(Job, Job.employee_id==Employee.id)
-            .filter(Job.brand_id == brand_pk, Employee.employee_id == employee_pk)
+            .filter(Job.brand_id == brand_pk, Employee.id == employee_pk)
             .one_or_none()
         )
 
