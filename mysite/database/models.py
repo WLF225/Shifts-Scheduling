@@ -1,4 +1,6 @@
-from sqlalchemy import Column, String, Integer, Date, Time, ForeignKey
+from sqlalchemy import (
+    Column, String, Integer, Date, Time, DateTime, Boolean, ForeignKey,
+)
 from sqlalchemy.orm import relationship, declarative_base, declared_attr
 
 
@@ -84,3 +86,38 @@ class Shift(Base):
 
     job = relationship("Job", back_populates="shifts")
     role = relationship("Role", back_populates="shifts")
+
+
+class Manager(Base):
+    """A user that can authenticate.
+
+    Only ``password_hash`` is ever stored; the raw password is hashed in
+    ``auth.service`` and never persisted or logged.
+    """
+    __tablename__ = "managers"
+
+    username = Column(String(100), nullable=False, unique=True)
+    email = Column(String(255), unique=True)
+    password_hash = Column(String(255), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    refresh_tokens = relationship(
+        "RefreshToken", back_populates="manager", cascade="all, delete-orphan"
+    )
+
+
+class RefreshToken(Base):
+    """A stored, revocable refresh token.
+
+    Access tokens are stateless JWTs and are never stored. Refresh tokens are
+    persisted so that logout can revoke a session immediately and so rotation
+    can detect reuse of an already-spent token.
+    """
+    __tablename__ = "refresh_tokens"
+
+    manager_id = Column(Integer, ForeignKey("managers.id"), nullable=False)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime)
+
+    manager = relationship("Manager", back_populates="refresh_tokens")

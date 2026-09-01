@@ -37,6 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Not a Django ORM app - registered so its management commands and
+    # views are discoverable. Persistence is SQLAlchemy throughout.
+    'authentication',
 ]
 
 MIDDLEWARE = [
@@ -48,10 +51,14 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # SQLAlchemy scoped session teardown - must wrap anything that queries,
-    # otherwise the scoped session leaks state between requests.
+    # otherwise the scoped session leaks state between requests. Listed before
+    # BearerAuthMiddleware, which queries the database on every request.
     'middleware.db_session.DbSessionMiddleware',
     # Request/response logger, writes to Logs.txt.
     'middleware.Middleware.SimpleMiddleware',
+    # Resolves 'Authorization: Bearer <access token>' into request.manager.
+    # Leaves request.manager = None when absent; @login_required enforces.
+    'authentication.middleware.BearerAuthMiddleware',
 ]
 
 ROOT_URLCONF = 'mysite.urls'

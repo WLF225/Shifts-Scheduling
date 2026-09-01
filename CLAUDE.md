@@ -89,9 +89,35 @@ for the repository-error → status-code mapping.
 
 ### Known gaps
 
-- Nothing ever calls `Base.metadata.create_all(engine)`, so tables are never
-  created. The database is created but stays empty.
-- No views and no URL routes beyond `admin/`.
 - SQLAlchemy is pinned at 1.4.x while `repositories/base.py` is written in 2.0
   style; check compatibility before using 2.0-only APIs.
 - `settings.py` still has the generated `SECRET_KEY` inline and `DEBUG = True`.
+  The secret key signs the access JWTs, so anyone holding it can mint valid
+  tokens - move it to an env var before this runs anywhere real. Rotating it
+  invalidates every outstanding access token by design.
+- `database/engine.py` defaults `DB_PASSWORD` to a literal in the source.
+- There is no test suite. The auth flow was verified with a throwaway script,
+  not something committed; `python manage.py test` finds nothing.
+- Only the auth endpoints exist. The scheduling domain (brands, shifts, roles)
+  has models and repositories but no views.
+
+### Authentication
+
+Bearer tokens, `/auth/` routes, in `mysite/authentication/`:
+
+- Access token: stateless HS256 JWT, 15 minutes, signed with `SECRET_KEY`,
+  verified with no database round-trip.
+- Refresh token: opaque random string, 14 days, stored only as a SHA-256 hash
+  in `refresh_tokens`. Rotated on every use; presenting a spent one revokes
+  every live token for that manager.
+- Passwords hashed with Django's PBKDF2 hashers in `authentication/service.py`
+  and nowhere else.
+- `BearerAuthMiddleware` sets `request.manager` (or `None`); the
+  `@login_required` decorator in `authentication/decorators.py` enforces access.
+
+The package is `authentication`, not `auth`: the label `auth` collides with
+`django.contrib.auth` and Django refuses to start. The URL prefix is still
+`/auth/`.
+
+Create the tables with `python manage.py init_db` (there are no Django
+migrations - the Django ORM is unused).
