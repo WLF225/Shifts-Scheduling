@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -38,9 +39,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    # Not a Django ORM app - registered so its management commands and
-    # views are discoverable. Persistence is SQLAlchemy throughout.
-    'authentication',
+    'rest_framework.authtoken',
+    'dj_rest_auth',
+    'database',
+    'django.contrib.sites',
+    'allauth',
+    'allauth.account',
+    'dj_rest_auth.registration',
+    'allauth.socialaccount'
 ]
 
 MIDDLEWARE = [
@@ -52,15 +58,38 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # SQLAlchemy scoped session teardown - must wrap anything that queries,
-    # otherwise the scoped session leaks state between requests. Listed before
-    # BearerAuthMiddleware, which queries the database on every request.
+    # otherwise the scoped session leaks state between requests.
     'middleware.db_session.DbSessionMiddleware',
     # Request/response logger, writes to Logs.txt.
     'middleware.Middleware.SimpleMiddleware',
-    # Resolves 'Authorization: Bearer <access token>' into request.manager.
-    # Leaves request.manager = None when absent; @login_required enforces.
-    'authentication.middleware.BearerAuthMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
 ]
+SITE_ID = 1
+
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+
+# Repository errors become HTTP status codes here.
+# Deny by default: no token, no data.
+# Public views opt out with permission_classes = [AllowAny].
+# dj_rest_auth login and registration already do.
+# JWTCookieAuthentication reads Bearer header or access cookie.
+# TokenAuthentication covers authtoken keys.
+# SessionAuthentication omitted: it would enforce CSRF on every call.
+# That does NOT make the API CSRF-proof. JWTCookieAuthentication also
+# authenticates off the 'access' cookie, and JWT_AUTH_COOKIE_USE_CSRF
+# defaults to False. What blocks cross-site writes today is
+# JWT_AUTH_SAMESITE defaulting to 'Lax'. If that is ever set to 'None'
+# for a cross-origin SPA, turn on JWT_AUTH_COOKIE_USE_CSRF in REST_AUTH.
+REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'mysite.exceptions.repository_exception_handler',
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'dj_rest_auth.jwt_auth.JWTCookieAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
 
 ROOT_URLCONF = 'mysite.urls'
 
@@ -85,10 +114,18 @@ WSGI_APPLICATION = 'mysite.wsgi.application'
 # database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Same MySQL database as database/engine.py.
+# Same env vars, so both stacks stay aligned.
+# Django's tables sit beside the SQLAlchemy ones.
+# No foreign keys cross between the two ORMs.
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.getenv('DB_NAME', 'Schedule'),
+        'USER': os.getenv('DB_USER', 'root'),
+        'PASSWORD': os.getenv('DB_PASSWORD', '2252'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '3306'),
     }
 }
 
@@ -110,6 +147,13 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': 'access',
+    'JWT_AUTH_REFRESH_COOKIE': 'refresh',
+    'JWT_AUTH_HTTPONLY': True,
+}
 
 
 # Internationalization

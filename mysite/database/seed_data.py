@@ -360,11 +360,7 @@ def _has_data(session: Session) -> bool:
 
 
 def clear(session: Session | None = None) -> dict[str, int]:
-    """Delete the scheduling rows, child-first. Does NOT drop tables.
-
-    Leaves ``managers`` and ``refresh_tokens`` alone -- auth data is unrelated
-    to the demo scheduling data.
-    """
+    """Delete the scheduling rows, child-first. Does NOT drop tables."""
     session = _resolve(session)
     deleted: dict[str, int] = {}
     try:
