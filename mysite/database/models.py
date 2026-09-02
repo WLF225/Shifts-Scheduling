@@ -78,7 +78,8 @@ class Role(Base):
 class Shift(Base):
     __tablename__ = "shifts"
 
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
+    # Null until an employee is assigned.
+    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=True)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
     starting_time = Column(Time, nullable=False)
     finishing_time = Column(Time, nullable=False)

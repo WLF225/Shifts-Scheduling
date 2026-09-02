@@ -32,7 +32,14 @@ class ShiftRepository(BaseRepository[Shift]):
         )
 
     def for_employee(self, employee_pk: int) -> Sequence[Shift]:
-        """Every shift an employee works, reached through their jobs."""
+        """Every shift an employee works, reached through their jobs.
+
+        The INNER JOIN on Job is load-bearing now that ``Shift.job_id`` is
+        nullable: it drops unassigned slots, which is what makes the FREE/BUSY
+        answer in ``EmployeeTimeViewSet`` correct - nobody is busy during a slot
+        no one has been assigned to. Switching this to an ``outerjoin`` would
+        quietly report every empty slot as time the employee is working.
+        """
         if employee_pk is None:
             raise InvalidFilter("employee_pk is required")
         return (
@@ -57,23 +64,70 @@ class ShiftRepository(BaseRepository[Shift]):
             .all()
         )
 
-    def for_role_job_date(
-        self, role_pk: int, job_pk: int, on_date: date_type
+    def for_role_date_start(
+        self, role_pk: int, on_date: date_type, starting_time
     ) -> Shift | None:
-        """The single shift on a role for one job on one day, if any.
+        """The shift occupying one role's slot at one time on one day, if any.
 
-        This is the lookup behind the collection-level PUT upsert: a (role, job,
-        date) triple identifies at most one planned shift.
+        This is the lookup behind the collection-level PUT upsert. The key is
+        deliberately ``(role, date, starting_time)`` and not ``(role, date)``:
+        a role routinely has several shifts on the same day - a morning and an
+        evening Cashier, say - and keying on the day alone would let a PUT for
+        the evening slot silently overwrite the morning one.
+
+        It matches staffed and unstaffed rows alike. The job is not part of the
+        key, because PUT no longer staffs anything; an existing row keeps
+        whatever ``job_id`` it already has.
         """
-        if role_pk is None or job_pk is None or on_date is None:
-            raise InvalidFilter("role_pk, job_pk and date are all required")
+        if role_pk is None or on_date is None or starting_time is None:
+            raise InvalidFilter("role_pk, date and starting_time are all required")
         return (
             self.session.query(Shift)
             .filter(
                 Shift.role_id == role_pk,
-                Shift.job_id == job_pk,
                 Shift.date == on_date,
+                Shift.starting_time == starting_time,
             )
-            .order_by(Shift.starting_time)
+            .order_by(Shift.id)
             .first()
         )
+
+    def overlapping_for_employee(
+        self,
+        employee_pk: int,
+        on_date: date_type,
+        starting_time,
+        finishing_time,
+        exclude_shift_pk: int | None = None,
+    ) -> Sequence[Shift]:
+        """Shifts the employee already works that clash with a proposed span.
+
+        Scoped to the *employee*, not to a job, brand, role or schedule: someone
+        holding two jobs still only has one body, so a booking at another brand
+        counts as a clash.
+
+        Overlap is half-open - ``existing.starting < new.finishing`` and
+        ``new.starting < existing.finishing`` - so a shift starting exactly when
+        another finishes is not a clash.
+
+        ``exclude_shift_pk`` drops one row from consideration; the PUT upsert
+        passes the row it is about to replace, which would otherwise always
+        clash with itself.
+        """
+        if employee_pk is None or on_date is None:
+            raise InvalidFilter("employee_pk and date are both required")
+        if starting_time is None or finishing_time is None:
+            raise InvalidFilter("starting_time and finishing_time are both required")
+        query = (
+            self.session.query(Shift)
+            .join(Job, Job.id == Shift.job_id)
+            .filter(
+                Job.employee_id == employee_pk,
+                Shift.date == on_date,
+                Shift.starting_time < finishing_time,
+                Shift.finishing_time > starting_time,
+            )
+        )
+        if exclude_shift_pk is not None:
+            query = query.filter(Shift.id != exclude_shift_pk)
+        return query.order_by(Shift.starting_time).all()

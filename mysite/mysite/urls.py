@@ -19,6 +19,7 @@ Everything else is the stock behaviour.
 """
 from django.contrib import admin
 from django.urls import include, path
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from rest_framework import routers
 from rest_framework_nested import routers as nested_routers
 from django.urls import path, include
@@ -127,4 +128,9 @@ urlpatterns = [
     path('api/v1/', include(api_v1_urls)),
     path('api/v1/auth/', include('dj_rest_auth.urls')),
     path('api/v1/auth/registration/', include('dj_rest_auth.registration.urls')),
+    # YOUR PATTERNS
+    path('api/v1/schema/', SpectacularAPIView.as_view(), name='schema'),
+    # Optional UI:
+    path('api/v1/schema/swagger-ui/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/v1/schema/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]

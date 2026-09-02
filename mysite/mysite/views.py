@@ -12,6 +12,7 @@ from datetime import date as date_type, datetime, time as time_type
 from typing import Any, Iterable
 
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from mysite import exceptions
@@ -188,13 +189,21 @@ def _job_payload(job) -> dict:
 
 
 def _shift_payload(shift) -> dict:
-    """A shift plus the context a caller needs to read it: role and brand."""
+    """A shift plus the context a caller needs to read it: role and brand.
+
+    ``job_id``, ``employee_id`` and ``employee`` are all ``None`` on an
+    unassigned slot - a shift is created empty and staffed later.
+    """
     role = shift.role
     schedule = role.schedule if role is not None else None
     brand = schedule.brand if schedule is not None else None
+    job = shift.job
+    employee = job.employee if job is not None else None
     return {
         "shift_id": shift.id,
         "job_id": shift.job_id,
+        "employee_id": job.employee_id if job is not None else None,
+        "employee": employee.name if employee is not None else None,
         "role_id": shift.role_id,
         "role": role.name if role is not None else None,
         "schedule_id": schedule.id if schedule is not None else None,
@@ -262,6 +271,70 @@ def _resolve_job(role, body):
             f"brand (employee ids: {ids}); pass an explicit job_id or employee_id"
         )
     return candidates[0], None
+
+
+def _check_assignment(job, role, fields, exclude_shift_id=None):
+    """Is this job allowed to work this role over this span?
+
+    Called on both write paths - ``create`` and the collection-level PUT upsert
+    - so the four rules are enforced in exactly one place.
+
+    :func:`_resolve_job` has already pinned the job to the role's brand (rule 1)
+    on all three of its branches. What is left is:
+
+    * the job's position must be the role it is being booked into. There is no
+      FK between Position and Role, so they are matched by name, which is the
+      convention the seed data already relies on;
+    * the job must be active - a terminated employment cannot be scheduled;
+    * the employee must be free, across *every* job they hold. Two brands is
+      still one person.
+
+    ``exclude_shift_id`` is the row the upsert is about to overwrite; without it
+    a shift would always be found to clash with itself.
+
+    Returns an error message, or ``None`` when the assignment is allowed.
+    """
+    employee = job.employee
+    who = f"Employee {job.employee_id}" + (
+        f" ({employee.name})" if employee is not None else ""
+    )
+
+    position_name = job.position.name if job.position is not None else None
+    if position_name != role.name:
+        return (
+            f"{who} is {position_name!r} at brand {job.brand_id}, so they cannot "
+            f"fill role {role.name!r}"
+        )
+
+    if job.status != "active":
+        return (
+            f"{who} has job {job.id} at brand {job.brand_id} with status "
+            f"{job.status!r}, not 'active', so they cannot be scheduled"
+        )
+
+    clashes = ShiftRepository().overlapping_for_employee(
+        job.employee_id,
+        fields["date"],
+        fields["starting_time"],
+        fields["finishing_time"],
+        exclude_shift_pk=exclude_shift_id,
+    )
+    if clashes:
+        clash = clashes[0]
+        clash_role = clash.role
+        clash_schedule = clash_role.schedule if clash_role is not None else None
+        clash_brand = clash_schedule.brand if clash_schedule is not None else None
+        where = f" for role {clash_role.name!r}" if clash_role is not None else ""
+        where += f" at brand {clash_brand.name!r}" if clash_brand is not None else ""
+        return (
+            f"{who} is already booked on {fields['date'].isoformat()} from "
+            f"{clash.starting_time.isoformat()} to "
+            f"{clash.finishing_time.isoformat()}{where} (shift {clash.id}), which "
+            f"overlaps {fields['starting_time'].isoformat()}-"
+            f"{fields['finishing_time'].isoformat()}"
+        )
+
+    return None
 
 
 class EmployeeViewSet(viewsets.ViewSet):
@@ -656,21 +729,90 @@ class ShiftViewSet(viewsets.ViewSet):
     def create(
         self, request, schedule_pk:int | None = None, role_pk:int | None = None
     ) -> Response:
+        """Create an unstaffed slot: role, date and span, nobody on it.
+
+        ``date``, ``starting_time`` and ``finishing_time`` are all required and
+        the span must be non-empty; :meth:`_times` enforces both. Nobody is
+        attached here, so none of the four eligibility rules can be checked yet
+        - they belong to :meth:`assign`.
+
+        A body carrying ``employee_id`` or ``job_id`` is rejected rather than
+        silently ignored: a caller sending one plainly expects the shift to come
+        out staffed, and a 201 with ``employee_id: null`` would look like a bug.
+        """
         role, error = self._role(schedule_pk, role_pk)
         if error is not None:
             return error
 
         body = request.data if isinstance(request.data, dict) else {}
+        if pick(body, "employee_id") is not None or pick(body, "job_id") is not None:
+            return _bad_request(
+                "A shift is created unassigned; POST "
+                f"/api/v1/schedules/{schedule_pk}/roles/{role.id}/shifts/"
+                "<shift_id>/assign to staff it"
+            )
         try:
             fields = self._times(body)
+        except ParseError as exc:
+            return _bad_request(str(exc))
+
+        shift = ShiftRepository().create(job_id=None, role_id=role.id, **fields)
+        return Response(_shift_payload(shift), status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post", "delete"], url_path="assign")
+    def assign(
+        self,
+        request,
+        pk:int | None = None,
+        schedule_pk:int | None = None,
+        role_pk:int | None = None,
+        employee_pk:int | None = None,
+    ) -> Response:
+        """Attach an employee to an existing slot, or clear one (DELETE).
+
+        POST takes ``employee_id`` (or an explicit ``job_id``) and enforces all
+        four eligibility rules through :func:`_resolve_job` - which pins the job
+        to the role's brand, rule 1 - and :func:`_check_assignment` - position
+        name, active status and the employee's own calendar, rules 2-4. Nothing
+        is written unless every rule passes.
+
+        DELETE unassigns, putting the slot back to empty. It needs no body and
+        no rules: taking someone off a shift can never create a clash.
+        """
+        role, error = self._role(schedule_pk, role_pk)
+        if error is not None:
+            return error
+
+        shifts = ShiftRepository()
+        shift = shifts.get(pk)
+        if shift is None or str(shift.role_id) != str(role.id):
+            raise exceptions.NotFound(f"Shift {pk} not found in role {role.id}")
+
+        if request.method == "DELETE":
+            shift = shifts.update(shift, job_id=None)
+            return Response(_shift_payload(shift), status=status.HTTP_200_OK)
+
+        body = request.data if isinstance(request.data, dict) else {}
+        if pick(body, "employee_id") is None and pick(body, "job_id") is None:
+            return _bad_request("employee_id is required to assign a shift")
+        try:
             job, message = _resolve_job(role, body)
         except ParseError as exc:
             return _bad_request(str(exc))
         if job is None:
             return _bad_request(message)
 
-        shift = ShiftRepository().create(job_id=job.id, role_id=role.id, **fields)
-        return Response(_shift_payload(shift), status=status.HTTP_201_CREATED)
+        fields = {
+            "date": shift.date,
+            "starting_time": shift.starting_time,
+            "finishing_time": shift.finishing_time,
+        }
+        message = _check_assignment(job, role, fields, exclude_shift_id=shift.id)
+        if message is not None:
+            return _bad_request(message)
+
+        shift = shifts.update(shift, job_id=job.id)
+        return Response(_shift_payload(shift), status=status.HTTP_200_OK)
 
     def update(
         self,
@@ -679,11 +821,21 @@ class ShiftViewSet(viewsets.ViewSet):
         role_pk:int | None = None,
         employee_pk:int | None = None,
     ) -> Response:
-        """Collection-level PUT: upsert the shift for (role, employee, date).
+        """Collection-level PUT: upsert the *slot* for (role, date, start).
 
-        There is no shift pk in the URL, so the triple identifies the row. An
-        existing shift on that day has its times replaced; otherwise one is
-        created, and the status code says which happened.
+        There is no shift pk in the URL, so that triple identifies the row.
+        ``starting_time`` is part of the key on purpose. A role routinely has
+        more than one shift on a day - a morning and an evening Cashier - so
+        keying on ``(role, date)`` alone would let a PUT for one of them
+        silently overwrite the other. With the start time in the key each
+        distinct span is its own slot, and PUT changes only the span it names.
+
+        PUT does not staff anything: :meth:`assign` is the only way an employee
+        is attached to a shift. So an existing row keeps whatever ``job_id`` it
+        already has - a PUT that lands on a staffed shift moves its finishing
+        time and leaves the employee in place - and a new row is created empty.
+        None of the four eligibility rules run here, because this path can
+        neither add nor change an assignment.
 
         ``employee_pk`` is accepted only because the router adds PUT to every
         list route, including the read-only employee mounts. It is never a way
@@ -695,25 +847,29 @@ class ShiftViewSet(viewsets.ViewSet):
             return error
 
         body = request.data if isinstance(request.data, dict) else {}
+        if pick(body, "employee_id") is not None or pick(body, "job_id") is not None:
+            return _bad_request(
+                "PUT sets a shift's times only and cannot staff it; POST "
+                f"/api/v1/schedules/{schedule_pk}/roles/{role.id}/shifts/"
+                "<shift_id>/assign to attach an employee"
+            )
         try:
             fields = self._times(body)
-            job, message = _resolve_job(role, body)
         except ParseError as exc:
             return _bad_request(str(exc))
-        if job is None:
-            return _bad_request(message)
 
         shifts = ShiftRepository()
-        existing = shifts.for_role_job_date(role.id, job.id, fields["date"])
+        existing = shifts.for_role_date_start(
+            role.id, fields["date"], fields["starting_time"]
+        )
+
         if existing is not None:
             shift = shifts.update(
-                existing,
-                starting_time=fields["starting_time"],
-                finishing_time=fields["finishing_time"],
+                existing, finishing_time=fields["finishing_time"]
             )
             return Response(_shift_payload(shift), status=status.HTTP_200_OK)
 
-        shift = shifts.create(job_id=job.id, role_id=role.id, **fields)
+        shift = shifts.create(job_id=None, role_id=role.id, **fields)
         return Response(_shift_payload(shift), status=status.HTTP_201_CREATED)
 
     @staticmethod
@@ -721,8 +877,11 @@ class ShiftViewSet(viewsets.ViewSet):
         """Load the role, insisting it really sits under the schedule in the URL."""
         if role_pk is None:
             return None, _bad_request(
-                "A shift must be posted under a role: "
-                "/api/v1/schedules/<schedule_id>/roles/<role_id>/shifts"
+                "A shift is addressed under a role: "
+                "/api/v1/schedules/<schedule_id>/roles/<role_id>/shifts "
+                "to create or upsert one, "
+                "/api/v1/schedules/<schedule_id>/roles/<role_id>/shifts/"
+                "<shift_id>/assign to staff one"
             )
         roles = RoleRepository()
         role = (
