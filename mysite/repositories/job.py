@@ -1,15 +1,18 @@
+"""Repository for job rows, the employment link."""
 from typing import Sequence
 
-from database.models import Job, Position
+from database.models import Job, JobStatus, Position
 from repositories.base import BaseRepository
 from repositories.exceptions import InvalidFilter
 
 
 class JobRepository(BaseRepository[Job]):
+    """Queries over the employment link rows."""
+
     model = Job
 
     def for_brand_and_employee(self, brand_pk: int, employee_pk: int) -> Job | None:
-        """The employment link between a brand and an employee, or ``None``."""
+        """The job linking one brand and one employee."""
         if brand_pk is None or employee_pk is None:
             raise InvalidFilter("brand_pk and employee_pk are both required")
         return (
@@ -19,13 +22,9 @@ class JobRepository(BaseRepository[Job]):
         )
 
     def by_position_name(
-        self, brand_pk: int, position_name: str, status: str | None = "active"
+        self, brand_pk: int, position_name: str, status: JobStatus | None = JobStatus.ACTIVE
     ) -> Sequence[Job]:
-        """Jobs in a brand whose position is named ``position_name``.
-
-        Used to resolve "which employee works this role" when a shift is posted
-        without an explicit job id.
-        """
+        """Jobs at a brand with this position."""
         if brand_pk is None or not position_name:
             raise InvalidFilter("brand_pk and position_name are both required")
         query = (
@@ -38,6 +37,7 @@ class JobRepository(BaseRepository[Job]):
         return query.all()
 
     def for_employee(self, employee_pk: int) -> Sequence[Job]:
+        """Every job this employee holds."""
         if employee_pk is None:
             raise InvalidFilter("employee_pk is required")
         return self.session.query(Job).filter(Job.employee_id == employee_pk).all()

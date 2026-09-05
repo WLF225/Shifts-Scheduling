@@ -119,23 +119,13 @@ ShiftUpdateRequest = inline_serializer(
                 "inclusive. Alias: `starting_date`."
             ),
         ),
-        "starting_time": serializers.CharField(
-            required=False, help_text=f"Optional. {_TIME_HELP} Alias: `start_time`."
-        ),
-        "finishing_time": serializers.CharField(
-            required=False,
-            help_text=(
-                f"Optional. {_TIME_HELP} Aliases: `finish_time`, `ending_time`."
-            ),
-        ),
+        "starting_time": serializers.CharField(required=False, help_text=f"Optional. {_TIME_HELP} Alias: `start_time`."),
+        "finishing_time": serializers.CharField(required=False, help_text=f"Optional. {_TIME_HELP} Aliases: `finish_time`, `ending_time`.",
+                                                ),
         "employee_id": serializers.IntegerField(
             required=False,
             allow_null=True,
-            help_text=(
-                "Staffs the shift with this employee's job at the role's brand. "
-                "Send explicit `null` to unstaff."
-            ),
-        ),
+            help_text="Staffs the shift with this employee's job at the role's brand. Send explicit `null` to unstaff.",),
         "job_id": serializers.IntegerField(
             required=False,
             allow_null=True,

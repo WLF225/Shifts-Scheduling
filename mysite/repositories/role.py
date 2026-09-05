@@ -1,3 +1,4 @@
+"""Repository for role rows."""
 from typing import Sequence
 
 from database.models import Role
@@ -6,15 +7,18 @@ from repositories.exceptions import InvalidFilter
 
 
 class RoleRepository(BaseRepository[Role]):
+    """Queries over roles, scoped to their schedule."""
+
     model = Role
 
     def for_schedule(self, schedule_pk: int) -> Sequence[Role]:
+        """Every role belonging to this schedule."""
         if schedule_pk is None:
             raise InvalidFilter("schedule_pk is required")
         return self.session.query(Role).filter(Role.schedule_id == schedule_pk).all()
 
     def role_for_schedule(self, schedule_pk: int, role_pk: int) -> Role | None:
-        """A role, but only if it belongs to ``schedule_pk``."""
+        """One role, only within this schedule."""
         if schedule_pk is None or role_pk is None:
             raise InvalidFilter("schedule_pk and role_pk are both required")
         return (

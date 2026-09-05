@@ -1,3 +1,4 @@
+"""Logs requests and responses to Logs.txt."""
 import logging
 
 handler = logging.FileHandler('Logs.txt')
@@ -8,20 +9,18 @@ logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 class SimpleMiddleware:
+    """Logs each request and response status."""
+
     def __init__(self, get_response):
+        """Stores the next handler in the chain."""
         self.get_response = get_response
 
     def __call__(self, request):
-        # Code to be executed for each request before
-        # the view (and later middleware) are called.
-
+        """Logs the request, calls through, logs the status."""
         logger.info(f"Request: {request.method} {request.path}")
 
         response = self.get_response(request)
 
         logger.info(f"Response: {response.status_code}")
-
-        # Code to be executed for each request/response after
-        # the view is called.
 
         return response

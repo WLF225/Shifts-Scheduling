@@ -23,9 +23,12 @@ more than a single ``@extend_schema`` can say - see :func:`swagger.common.by_mou
 for why stacking decorators does not split by path, and what is done instead.
 
 ``update`` (``update_employment``) edits the *Job*, never the employee's name,
-and requires at least one of ``roles``/``status`` - an empty body is a 400. A
-``brand_id``/``employee_id`` in the body is accepted but ignored, because
-honouring it would let a PUT to one URL edit a different row.
+and it edits exactly one field of it: ``status``. An empty body is a 400, and so
+is a body carrying ``roles``/``role``/``position`` - a position cannot be
+re-assigned through this endpoint, and quietly ignoring the key would look like
+a successful re-assignment that never happened. A ``brand_id``/``employee_id`` in
+the body is accepted but ignored, because honouring it would let a PUT to one URL
+edit a different row.
 
 It is bound only under a brand, ``PUT /api/v1/brands/{brand_pk}/employees/{id}``.
 The top-level ``PUT /api/v1/employees/{id}`` is excluded at the router: editing
@@ -97,10 +100,10 @@ EmployRequest = inline_serializer(
                 "use. Aliases: `role`, `position`."
             ),
         ),
-        "status": serializers.CharField(
-            max_length=50,
+        "status": serializers.ChoiceField(
+            choices=["active", "inactive"],
             required=False,
-            help_text="Optional; defaults to `active`.",
+            help_text="Optional; `active` or `inactive`, defaults to `active`.",
         ),
     },
 )
@@ -108,15 +111,9 @@ EmployRequest = inline_serializer(
 UpdateEmploymentRequest = inline_serializer(
     name="UpdateEmploymentRequest",
     fields={
-        "roles": serializers.CharField(
-            max_length=100,
-            required=False,
-            help_text="New position, created on first use. Aliases: `role`, `position`.",
-        ),
-        "status": serializers.CharField(
-            max_length=50,
-            required=False,
-            help_text="New job status, e.g. `active` or `terminated`.",
+        "status": serializers.ChoiceField(
+            choices=["active", "inactive"],
+            help_text="Required. New job status: `active` or `inactive`.",
         ),
     },
 )
@@ -227,10 +224,18 @@ employee_schema = extend_schema_view(
         ),
     ),
     update=extend_schema(
-        summary="Re-assign an employee's job at a brand",
+        summary="Change an employee's job status at a brand",
         description=(
-            "Edits the Job, not the employee's name. Send `roles` and/or "
-            "`status`; an empty body is a 400. Requires both ids in the URL: "
+            "Edits the Job, not the employee's name, and edits exactly one "
+            "field of it: `status`. Sending nothing is a 400.\n\n"
+            "A position **cannot** be re-assigned here. A body carrying "
+            "`roles`, `role` or `position` is rejected with a 400 rather than "
+            "accepted-and-ignored, so a caller who meant to move someone to "
+            "another position is told so instead of receiving a 200 that "
+            "changed nothing they asked for. To change a position, end this "
+            "job and employ the person again via "
+            "`POST /api/v1/brands/{brand_pk}/employees`.\n\n"
+            "Requires both ids in the URL: "
             "`PUT /api/v1/brands/{brand_pk}/employees/{id}`. A `brand_id` or "
             "`employee_id` in the body is accepted but ignored - the URL is "
             "authoritative."
@@ -242,20 +247,32 @@ employee_schema = extend_schema_view(
                 response=EmploymentResponse, description="The updated Job and employee."
             ),
             400: bad_request(
-                "Neither `roles` nor `status` was sent, or no brand is in the URL."
+                "`status` was not sent, or a `roles`/`role`/`position` key was "
+                "sent, or no brand is in the URL."
             ),
             404: not_found("This employee holds no job at this brand."),
         },
         examples=[
             OpenApiExample(
-                "Promote", value={"roles": "Manager"}, request_only=True
+                "Deactivate", value={"status": "inactive"}, request_only=True
             ),
             OpenApiExample(
-                "Terminate", value={"status": "terminated"}, request_only=True
+                "Reinstate", value={"status": "active"}, request_only=True
             ),
             OpenApiExample(
                 "Empty body",
-                value={"error": "Nothing to update; send 'roles' and/or 'status'"},
+                value={"error": "Nothing to update; send 'status'"},
+                response_only=True,
+                status_codes=["400"],
+            ),
+            OpenApiExample(
+                "Tried to re-assign the position",
+                value={
+                    "error": (
+                        "A job's position cannot be changed here; this endpoint "
+                        "updates 'status' only"
+                    )
+                },
                 response_only=True,
                 status_codes=["400"],
             ),

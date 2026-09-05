@@ -1,9 +1,9 @@
-
+"""Plain dict payloads for jobs and shifts."""
 from __future__ import annotations
 
 
 def job_payload(job) -> dict:
-    """A job as the API reports it: ids plus the position name it stands for."""
+    """One job: its ids plus the position name."""
     return {
         "id": job.id,
         "brand_id": job.brand_id,
@@ -15,7 +15,7 @@ def job_payload(job) -> dict:
 
 
 def shift_payload(shift) -> dict:
-
+    """One shift flattened with role, brand, employee."""
     role = shift.role
     schedule = role.schedule if role is not None else None
     brand = schedule.brand if schedule is not None else None

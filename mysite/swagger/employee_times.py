@@ -83,8 +83,7 @@ employee_time_schema = extend_schema_view(
         description=(
             "`busy` is the employee's shifts across every job they hold. "
             "`free` is the complement of those blocks within the 00:00-23:59 "
-            "window, reported only for days the employee already works."
-        ),
+            "window, reported only for days the employee already works."),
         parameters=[EMPLOYEE_PK, MODE],
         # Kept an object by PathParameterSchema._is_list_view.
         responses={

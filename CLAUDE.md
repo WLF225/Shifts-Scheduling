@@ -16,6 +16,39 @@ Report the reviewer's findings back rather than silently acting on them.
 Note: the user's global `~/.claude/CLAUDE.md` prefers inline work over subagents
 to avoid cold-start cost. This project rule overrides that preference here.
 
+## Comment style
+
+**One line, eight words, no exceptions.** Every module, class, function and
+method carries exactly one docstring: a single physical line of at most eight
+words. Multi-line docstrings are banned — do not write one, and compress any
+you find.
+
+- `"""Staffs, retimes, or unstaffs one shift."""` — good.
+- `"""Handles the request."""` — useless, say what it actually does.
+- Anything spanning two lines, or with a blank line, Args/Returns section, or
+  a second sentence — wrong, regardless of how useful the content is.
+
+This applies to `__init__`, private `_helpers`, static methods, nested classes
+and package `__init__.py` files. Nothing is exempt for being obvious or small.
+
+Inline `#` comments: only for a non-obvious *why*, one short line. Delete
+decorative banners and comments that restate the code.
+
+**The one exception is `swagger/`.** Its docstrings and `help_text` are the
+API documentation — they are rendered into `schema.yml` and Swagger UI, so
+they stay as long as they need to be.
+
+Enforce it mechanically rather than by eye:
+
+```powershell
+cd mysite
+..\.venv\Scripts\python.exe -c "import ast,pathlib;[print('BAD',f,n.lineno,getattr(n,'name','module')) for pat in ('components/*.py','mysite/*.py','repositories/*.py','database/*.py','middleware/*.py') for f in pathlib.Path('.').glob(pat) for n in ast.walk(ast.parse(f.read_text(encoding='utf-8'))) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)) and (ast.get_docstring(n) is None or len(ast.get_docstring(n).splitlines())>1 or len(ast.get_docstring(n).split())>8)]"
+```
+
+Because the rule throws away rationale, an invariant that would otherwise live
+in a comment belongs in this file instead — see "Invariants that are easy to
+break".
+
 ## Commands
 
 All Python invocations use the venv interpreter directly (`python` on PATH is the
@@ -104,6 +137,11 @@ registered only so `manage.py init_db` is discovered; it has no migrations.
   the only place `session.commit()` happens on the request path (`seed_data.py`, a
   one-off script, commits directly). Add model-specific queries as subclass methods
   rather than querying from a view.
+
+  **`ShiftRepository.for_employee`'s `INNER JOIN` on `Job` is load-bearing.**
+  `Shift.job_id` is nullable because a shift is created unstaffed, so an
+  `outerjoin` there would report every empty slot as time the employee is
+  working. Do not "fix" it.
 - `mysite/schemas.py` — one `SQLAlchemyAutoSchema` per model, `load_instance` and
   `include_fk` on, bound to the shared scoped session. Views only ever `.dump()`.
 - `components/` — the domain tier, between views and repositories. One component
@@ -263,6 +301,26 @@ package is what fixed it, and it is entirely hand-maintained:
 
 After touching views, routers or payloads, re-run the dump and confirm it still
 reports no warnings.
+
+### Invariants that are easy to break
+
+Docstrings across the codebase are capped at one line of ≤8 words, so these
+three rules no longer fit anywhere near the code they govern. They are the ones
+whose loss would cause a silent bug:
+
+- **Contradictory staffing must stay a 400.** `ShiftComponent._staffing_intent`
+  reads the staffing keys as a set: all present keys null means unstaff, all
+  non-null means staff, and a *mix* is a 400. A body like
+  `{"employee_id": null, "job_id": 7}` once took the unstaff branch and wrote
+  `job_id = None` at HTTP 200, skipping all four eligibility rules. Do not
+  "simplify" that into a per-key check.
+- **One person may hold several jobs at the same brand.** Cook *and* Cashier is
+  a real arrangement, so `EmployeeComponent.employ` deliberately has no
+  duplicate-employment check and re-employing is a 201, never a 409. The
+  missing check is the feature.
+- **`ShiftComponent.list` raises `RuntimeError`, not `ValidationError`,** when
+  given neither a role nor an employee. It is unreachable through routing, so a
+  400 there would blame the caller for what is a wiring bug.
 
 ### Known gaps
 

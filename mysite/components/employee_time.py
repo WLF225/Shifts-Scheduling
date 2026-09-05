@@ -1,4 +1,4 @@
-
+"""Booked and free time for one employee."""
 from __future__ import annotations
 
 from datetime import time as time_type
@@ -18,9 +18,10 @@ MODES = ("free", "busy")
 
 
 class EmployeeTimeComponent(BaseComponent):
+    """Reports when an employee is booked and free."""
 
     def times(self, employee_pk=None, mode: Any = None) -> dict:
-
+        """One employee's busy blocks, free gaps, or both."""
         employee = self._repo(EmployeeRepository).get(employee_pk)
         if employee is None:
             raise NotFound(f"Employee {employee_pk} not found")
@@ -37,6 +38,7 @@ class EmployeeTimeComponent(BaseComponent):
 
     @staticmethod
     def _busy_block(shift) -> dict:
+        """One booked block with its role and brand."""
         role = shift.role
         schedule = role.schedule if role is not None else None
         brand = schedule.brand if schedule is not None else None
@@ -51,12 +53,7 @@ class EmployeeTimeComponent(BaseComponent):
 
     @staticmethod
     def _free(shifts) -> list[dict]:
-        """The complement of the busy blocks, day by day.
-
-        Only days the employee already works are reported - a day with no shift
-        at all is free by definition, and listing every such day would be an
-        unbounded answer.
-        """
+        """Gaps between shifts, only on days already worked."""
         by_day: dict[object, list] = {}
         for shift in shifts:
             by_day.setdefault(shift.date, []).append(shift)

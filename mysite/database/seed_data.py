@@ -1,33 +1,4 @@
-"""Consistent test/demo data for the scheduling domain.
-
-``mysite/`` is the Python import root, so run this with ``mysite`` as the
-working directory (imports here are ``database.engine`` / ``database.models``)::
-
-    cd mysite
-    ..\\.venv\\Scripts\\python.exe -m database.seed_data            # seed + validate
-    ..\\.venv\\Scripts\\python.exe -m database.seed_data --validate # validate only
-    ..\\.venv\\Scripts\\python.exe -m database.seed_data --clear    # delete seeded rows
-    ..\\.venv\\Scripts\\python.exe -m database.seed_data --reset    # clear, then seed
-
-Importing this module opens a DB connection (``database.engine`` does that as a
-side effect). It never creates or drops tables -- run
-``python manage.py init_db`` first if the schema is not there yet.
-
-The data satisfies five invariants, all re-checked by :func:`validate`:
-
-1. ``shift.role.schedule`` is the schedule the shift belongs to.
-2. The shift's job is at the schedule's brand, and that job's position name
-    equals the shift's role name.
-3. (1) + (2): an employee is only schedulable on a shift when he holds a job at
-    the brand owning the schedule *and* his position matches the role.
-4. No employee has two shifts whose ``[starting_time, finishing_time)``
-    intervals overlap on the same date -- checked across every brand and
-    schedule, since an employee may hold jobs at more than one brand.
-5. ``shift.date`` falls inside ``[schedule.starting_date, +6 days]``. A
-    schedule covers exactly one week anchored to its own ``starting_date``,
-    whatever weekday that is; the seed data happens to use Monday starts, but
-    nothing requires it.
-"""
+"""Seeds and validates demo scheduling data."""
 from __future__ import annotations
 
 from datetime import date, time, timedelta
@@ -45,16 +16,11 @@ from database.models import (
     Shift,
 )
 
-# --------------------------------------------------------------- declarative data
-
-#: The first seeded week. Monday here only by convention - a schedule's week is
-#: anchored to its own ``starting_date`` and may open on any weekday.
 WEEK_1 = date(2026, 9, 7)
 WEEK_2 = WEEK_1 + timedelta(days=7)
 
 POSITIONS: tuple[str, ...] = ("Cashier", "Cook", "Server", "Barista", "Manager")
 
-#: (brand key, name, location)
 BRANDS: tuple[tuple[str, str, str], ...] = (
     ("bean", "Bean & Board", "12 Nile St, Cairo"),
     ("grill", "Grill House", "44 Corniche, Alexandria"),
@@ -76,22 +42,18 @@ EMPLOYEES: tuple[str, ...] = (
     "Layla Morsi",
 )
 
-#: (employee name, brand key, position name, status). Employees appearing twice
-#: hold jobs at two brands -- the cross-brand overlap case invariant 4 guards.
+# An employee appearing twice holds jobs at two brands.
 JOBS: tuple[tuple[str, str, str, str], ...] = (
-    # Bean & Board -- cafe
     ("Amina Hassan", "bean", "Manager", "active"),
     ("Bilal Farouk", "bean", "Barista", "active"),
     ("Carla Mendes", "bean", "Barista", "active"),
     ("Dina Salah", "bean", "Cashier", "active"),
     ("Emad Nabil", "bean", "Server", "active"),
-    # Grill House -- restaurant
     ("Farah Zaki", "grill", "Manager", "active"),
     ("Gamal Rashad", "grill", "Cook", "active"),
     ("Hana Youssef", "grill", "Cook", "active"),
     ("Ismail Adel", "grill", "Server", "active"),
     ("Dina Salah", "grill", "Cashier", "active"),  # second brand
-    # Noodle Lab
     ("Jana Kamal", "noodle", "Manager", "active"),
     ("Karim Louis", "noodle", "Cook", "active"),
     ("Layla Morsi", "noodle", "Server", "active"),
@@ -99,7 +61,6 @@ JOBS: tuple[tuple[str, str, str, str], ...] = (
     ("Bilal Farouk", "noodle", "Cashier", "active"),  # second brand
 )
 
-#: (schedule key, brand key, starting date - the day the week opens)
 SCHEDULES: tuple[tuple[str, str, date], ...] = (
     ("bean-w1", "bean", WEEK_1),
     ("bean-w2", "bean", WEEK_2),
@@ -107,7 +68,6 @@ SCHEDULES: tuple[tuple[str, str, date], ...] = (
     ("noodle-w1", "noodle", WEEK_1),
 )
 
-#: schedule key -> role names. Only positions actually staffed at that brand.
 ROLES: dict[str, tuple[str, ...]] = {
     "bean-w1": ("Manager", "Barista", "Cashier", "Server"),
     "bean-w2": ("Manager", "Barista", "Cashier"),
@@ -120,10 +80,7 @@ EVENING = (time(16, 0), time(23, 0))
 MIDDAY = (time(11, 0), time(15, 0))
 LATE = (time(17, 0), time(22, 0))
 
-#: (schedule key, day offset from starting_date 0-6, employee name, role name,
-#:  (starting_time, finishing_time))
 SHIFTS: tuple[tuple[str, int, str, str, tuple[time, time]], ...] = (
-    # ---- Bean & Board, week 1
     ("bean-w1", 0, "Amina Hassan", "Manager", MORNING),
     ("bean-w1", 0, "Bilal Farouk", "Barista", MORNING),
     ("bean-w1", 0, "Carla Mendes", "Barista", EVENING),
@@ -141,7 +98,6 @@ SHIFTS: tuple[tuple[str, int, str, str, tuple[time, time]], ...] = (
     ("bean-w1", 5, "Dina Salah", "Cashier", MORNING),
     ("bean-w1", 6, "Amina Hassan", "Manager", MORNING),
     ("bean-w1", 6, "Bilal Farouk", "Barista", EVENING),
-    # ---- Bean & Board, week 2
     ("bean-w2", 0, "Amina Hassan", "Manager", MORNING),
     ("bean-w2", 0, "Carla Mendes", "Barista", MORNING),
     ("bean-w2", 1, "Bilal Farouk", "Barista", MORNING),
@@ -150,13 +106,10 @@ SHIFTS: tuple[tuple[str, int, str, str, tuple[time, time]], ...] = (
     ("bean-w2", 3, "Amina Hassan", "Manager", MIDDAY),
     ("bean-w2", 4, "Bilal Farouk", "Barista", MORNING),
     ("bean-w2", 5, "Dina Salah", "Cashier", MORNING),
-    # ---- Grill House, week 1
     ("grill-w1", 0, "Farah Zaki", "Manager", MORNING),
     ("grill-w1", 0, "Gamal Rashad", "Cook", MORNING),
     ("grill-w1", 0, "Hana Youssef", "Cook", EVENING),
     ("grill-w1", 0, "Ismail Adel", "Server", EVENING),
-    # Dina works Cashier at the cafe in the morning and here in the evening --
-    # two brands, same day, non-overlapping.
     ("grill-w1", 0, "Dina Salah", "Cashier", EVENING),
     ("grill-w1", 1, "Farah Zaki", "Manager", MORNING),
     ("grill-w1", 1, "Gamal Rashad", "Cook", EVENING),
@@ -169,14 +122,11 @@ SHIFTS: tuple[tuple[str, int, str, str, tuple[time, time]], ...] = (
     ("grill-w1", 5, "Ismail Adel", "Server", EVENING),
     ("grill-w1", 6, "Farah Zaki", "Manager", MIDDAY),
     ("grill-w1", 6, "Gamal Rashad", "Cook", MORNING),
-    # ---- Noodle Lab, week 1
     ("noodle-w1", 0, "Jana Kamal", "Manager", MORNING),
     ("noodle-w1", 0, "Karim Louis", "Cook", MORNING),
     ("noodle-w1", 0, "Layla Morsi", "Server", EVENING),
     ("noodle-w1", 1, "Jana Kamal", "Manager", MORNING),
     ("noodle-w1", 1, "Karim Louis", "Cook", EVENING),
-    # Emad's only other week-1 shifts are at the cafe on days 1 and 4, neither
-    # of which collides with this midday slot on day 2.
     ("noodle-w1", 2, "Emad Nabil", "Server", MIDDAY),
     ("noodle-w1", 2, "Bilal Farouk", "Cashier", EVENING),
     ("noodle-w1", 3, "Jana Kamal", "Manager", LATE),
@@ -191,13 +141,14 @@ SHIFTS: tuple[tuple[str, int, str, str, tuple[time, time]], ...] = (
 
 
 class SeedError(RuntimeError):
-    """Raised when the seed data itself is inconsistent."""
+    """Raised when the seed data is inconsistent."""
 
 
 class ValidationError(RuntimeError):
-    """Raised by :func:`validate` when the DB violates an invariant."""
+    """Raised when the database violates an invariant."""
 
     def __init__(self, violations: list[str]) -> None:
+        """Joins the violations into one message."""
         super().__init__(
             f"{len(violations)} invariant violation(s):\n  "
             + "\n  ".join(violations)
@@ -206,19 +157,12 @@ class ValidationError(RuntimeError):
 
 
 def _resolve(session: Session | None) -> Session:
-    """Session convention: injected session, else the shared scoped session."""
+    """The injected session, else the scoped one."""
     return session if session is not None else default_session
 
 
-# ------------------------------------------------------------------------ seed
-
-
 def seed(session: Session | None = None, *, force: bool = False) -> dict[str, int]:
-    """Insert the demo data and commit. Returns per-table row counts.
-
-    Skips entirely (returning zero counts) when any brand, employee, or shift
-    already exists, unless ``force=True``. Never creates or drops tables.
-    """
+    """Inserts the demo data, returning per-table row counts."""
     session = _resolve(session)
 
     if not force and _has_data(session):
@@ -235,9 +179,6 @@ def seed(session: Session | None = None, *, force: bool = False) -> dict[str, in
         employees = {name: Employee(name=name) for name in EMPLOYEES}
         session.add_all(employees.values())
 
-        # (employee name, brand key) -> Job. This mapping is what makes
-        # invariants 2 and 3 hold: a shift can only be built from a job that
-        # already ties the employee to the brand and the position.
         jobs: dict[tuple[str, str], Job] = {}
         for emp_name, brand_key, position_name, status in JOBS:
             if (emp_name, brand_key) in jobs:
@@ -261,8 +202,6 @@ def seed(session: Session | None = None, *, force: bool = False) -> dict[str, in
             schedule_brand[sched_key] = brand_key
         session.add_all(schedules.values())
 
-        # (schedule key, role name) -> Role. Roles are per-schedule, so a shift
-        # picking a role from its own schedule is what invariant 1 requires.
         roles: dict[tuple[str, str], Role] = {}
         for sched_key, role_names in ROLES.items():
             if sched_key not in schedules:
@@ -278,7 +217,6 @@ def seed(session: Session | None = None, *, force: bool = False) -> dict[str, in
         session.add_all(roles.values())
 
         shifts: list[Shift] = []
-        # employee name -> list of (date, start, finish), for the overlap check
         booked: dict[str, list[tuple[date, time, time]]] = {}
         for sched_key, day_offset, emp_name, role_name, (start, finish) in SHIFTS:
             if not 0 <= day_offset <= 6:
@@ -341,24 +279,15 @@ def seed(session: Session | None = None, *, force: bool = False) -> dict[str, in
 
 
 def _has_data(session: Session) -> bool:
-    """True if any table :func:`seed` writes to already holds a row.
-
-    Every seeded table is checked, not just a representative few: none of
-    ``Brand``/``Employee``/``Position`` has a unique constraint on its name, so
-    seeding on top of a partially-populated database would silently duplicate
-    rows rather than fail.
-    """
+    """True when any seeded table already holds rows."""
     for model in (Brand, Position, Employee, Job, Schedule, Role, Shift):
         if session.query(model).first() is not None:
             return True
     return False
 
 
-# ----------------------------------------------------------------------- clear
-
-
 def clear(session: Session | None = None) -> dict[str, int]:
-    """Delete the scheduling rows, child-first. Does NOT drop tables."""
+    """Deletes the scheduling rows child-first, keeping tables."""
     session = _resolve(session)
     deleted: dict[str, int] = {}
     try:
@@ -373,16 +302,8 @@ def clear(session: Session | None = None) -> dict[str, int]:
     return deleted
 
 
-# -------------------------------------------------------------------- validate
-
-
 def validate(session: Session | None = None, *, raise_on_violation: bool = True) -> list[str]:
-    """Re-check all five invariants against the database.
-
-    Returns the list of violation messages (empty when the data is consistent).
-    Raises :class:`ValidationError` on any violation unless
-    ``raise_on_violation=False``.
-    """
+    """Re-checks all five invariants, returning violation messages."""
     session = _resolve(session)
     violations: list[str] = []
 
@@ -396,19 +317,12 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
         .all()
     )
 
-    # brand id -> its schedules, so a shift's own schedule can be identified
-    # without relying on the role it points at (see invariant 1 below).
     schedules_by_brand: dict[int, list[Schedule]] = {}
 
     for schedule in session.query(Schedule).all():
         schedules_by_brand.setdefault(schedule.brand_id, []).append(schedule)
 
-    # A brand must not have two schedules covering the same week. This is its
-    # own root cause, reported separately: invariant 1 identifies a shift's
-    # schedule by "the schedule of the job's brand whose week contains the
-    # date", which is only well defined when brand weeks are disjoint. Without
-    # this check, one duplicate schedule would surface as an "ambiguous"
-    # violation on every shift in that week instead of being named directly.
+    # Invariant 1 is only well defined when a brand's weeks are disjoint.
     for brand_id, brand_schedules in schedules_by_brand.items():
         ordered = sorted(brand_schedules, key=lambda sc: sc.starting_date)
         for earlier, later in zip(ordered, ordered[1:]):
@@ -419,7 +333,6 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
                     f"({later.starting_date}) cover overlapping weeks"
                 )
 
-    # employee id -> list of (date, start, finish, shift id), for invariant 4
     by_employee: dict[int, list[tuple[date, time, time, int]]] = {}
 
     for shift in shifts:
@@ -433,10 +346,7 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
             violations.append(f"shift {shift.id}: role {role.id} has no schedule")
             continue
 
-        # Invariant 1 -- shift.role.schedule is *the* schedule being populated.
-        # A shift has no direct schedule FK, so the schedule it belongs to is
-        # determined independently: it is the unique schedule of the job's brand
-        # whose week contains shift.date. The role's schedule must be that one.
+        # A shift has no schedule FK, so derive it from brand and date.
         expected = [
             sched for sched in schedules_by_brand.get(job.brand_id, ())
             if sched.starting_date <= shift.date <= sched.starting_date + timedelta(days=6)
@@ -464,7 +374,6 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
                 f"!= schedule {schedule.id}"
             )
 
-        # Invariant 2/3 -- job at the schedule's brand, position matches role.
         if job.brand_id != schedule.brand_id:
             violations.append(
                 f"shift {shift.id}: job {job.id} is at brand {job.brand_id} but "
@@ -478,7 +387,6 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
                 f"{role.name!r} (invariant 3)"
             )
 
-        # Invariant 5a -- date inside the schedule's week.
         week_end = schedule.starting_date + timedelta(days=6)
         if not (schedule.starting_date <= shift.date <= week_end):
             violations.append(
@@ -497,12 +405,7 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
             (shift.date, shift.starting_time, shift.finishing_time, shift.id)
         )
 
-    # Invariant 4 -- no overlap for one employee, across all brands/schedules.
-    # Comparing only adjacent pairs after sorting is NOT enough: a long shift
-    # can contain a later short one with an unrelated shift sorted between them,
-    # and the containment would go unreported. Sorting by start time and
-    # carrying the furthest finish seen so far on that date catches every
-    # overlap, including containment.
+    # Carrying the furthest finish catches containment, unlike adjacent pairs.
     for employee_id, entries in by_employee.items():
         entries.sort(key=lambda e: (e[0], e[1], e[2]))
         open_date: date | None = None
@@ -530,10 +433,8 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
     return violations
 
 
-# ------------------------------------------------------------------------ main
-
-
 def _summary(session: Session) -> str:
+    """Row counts per seeded table, as text."""
     rows = [
         (model.__tablename__, session.query(model).count())
         for model in (Brand, Position, Employee, Job, Schedule, Role, Shift)
@@ -542,6 +443,7 @@ def _summary(session: Session) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Runs clear, seed and validate per the flags."""
     import sys
 
     argv = sys.argv[1:] if argv is None else argv

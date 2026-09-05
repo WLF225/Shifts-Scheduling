@@ -117,9 +117,7 @@ NotFoundBody = inline_serializer(
 
 def bad_request(description: str, examples: list[OpenApiExample] | None = None) -> OpenApiResponse:
 
-    return OpenApiResponse(
-        response=ValidationErrorBody, description=description, examples=examples
-    )
+    return OpenApiResponse(response=ValidationErrorBody, description=description, examples=examples)
 
 
 def not_found(description: str) -> OpenApiResponse:

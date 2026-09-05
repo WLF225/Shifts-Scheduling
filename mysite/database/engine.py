@@ -1,3 +1,4 @@
+"""Creates the database if missing; exposes the session."""
 import os
 
 from sqlalchemy import create_engine, Column, Integer, text

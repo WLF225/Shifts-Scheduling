@@ -628,11 +628,13 @@ paths:
           description: No such employee, or none employed by this brand.
     put:
       operationId: brands_employees_update
-      description: 'Edits the Job, not the employee''s name. Send `roles` and/or `status`;
-        an empty body is a 400. Requires both ids in the URL: `PUT /api/v1/brands/{brand_pk}/employees/{id}`.
-        A `brand_id` or `employee_id` in the body is accepted but ignored - the URL
-        is authoritative.'
-      summary: Re-assign an employee's job at a brand
+      description: |-
+        Edits the Job, not the employee's name, and edits exactly one field of it: `status`. Sending nothing is a 400.
+
+        A position **cannot** be re-assigned here. A body carrying `roles`, `role` or `position` is rejected with a 400 rather than accepted-and-ignored, so a caller who meant to move someone to another position is told so instead of receiving a 200 that changed nothing they asked for. To change a position, end this job and employ the person again via `POST /api/v1/brands/{brand_pk}/employees`.
+
+        Requires both ids in the URL: `PUT /api/v1/brands/{brand_pk}/employees/{id}`. A `brand_id` or `employee_id` in the body is accepted but ignored - the URL is authoritative.
+      summary: Change an employee's job status at a brand
       parameters:
       - in: path
         name: brand_pk
@@ -654,18 +656,19 @@ paths:
             schema:
               $ref: '#/components/schemas/UpdateEmploymentRequest'
             examples:
-              Promote:
+              Deactivate:
                 value:
-                  roles: Manager
-              Terminate:
+                  status: inactive
+              Reinstate:
                 value:
-                  status: terminated
+                  status: active
           application/x-www-form-urlencoded:
             schema:
               $ref: '#/components/schemas/UpdateEmploymentRequest'
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/UpdateEmploymentRequest'
+        required: true
       security:
       - jwtHeaderAuth: []
       - jwtCookieAuth: []
@@ -685,10 +688,15 @@ paths:
               examples:
                 EmptyBody:
                   value:
-                    error: Nothing to update; send 'roles' and/or 'status'
+                    error: Nothing to update; send 'status'
                   summary: Empty body
-          description: Neither `roles` nor `status` was sent, or no brand is in the
-            URL.
+                TriedToRe-assignThePosition:
+                  value:
+                    error: A job's position cannot be changed here; this endpoint
+                      updates 'status' only
+                  summary: Tried to re-assign the position
+          description: '`status` was not sent, or a `roles`/`role`/`position` key
+            was sent, or no brand is in the URL.'
         '404':
           content:
             application/json:
@@ -828,17 +836,7 @@ paths:
   /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles:
     get:
       operationId: brands_schedules_roles_list
-      description: |-
-        Roles, always addressed under their schedule, itself under its brand.
-
-        The only mount is ``brands/<id>/schedules/<id>/roles``, so both
-        ``brand_pk`` and ``schedule_pk`` are always supplied and a role is only
-        ever looked up within the schedule that owns it: asking the wrong schedule
-        for a real role is a 404, not a hit.
-
-        ``brand_pk`` is captured by the URL and so is passed to every method by
-        DRF; a method omitting it would raise ``TypeError``. ``create`` also uses
-        it, to resolve the schedule within the brand.
+      description: One schedule's roles.
       summary: List the roles in a schedule
       parameters:
       - in: path
@@ -1274,6 +1272,7 @@ paths:
   /api/v1/brands/{id}:
     get:
       operationId: brands_retrieve
+      description: One brand by id.
       summary: Retrieve a brand
       parameters:
       - in: path
@@ -1621,9 +1620,13 @@ components:
             use. Aliases: `role`, `position`.'
           maxLength: 100
         status:
-          type: string
-          description: Optional; defaults to `active`.
-          maxLength: 50
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          description: |-
+            Optional; `active` or `inactive`, defaults to `active`.
+
+            * `active` - active
+            * `inactive` - inactive
       required:
       - employee_id
       - roles
@@ -1984,6 +1987,14 @@ components:
           nullable: true
           description: Staffs the shift with this job directly; takes precedence over
             `employee_id`, which must agree if also sent.
+    StatusEnum:
+      enum:
+      - active
+      - inactive
+      type: string
+      description: |-
+        * `active` - active
+        * `inactive` - inactive
     TokenRefresh:
       type: object
       properties:
@@ -2007,14 +2018,16 @@ components:
     UpdateEmploymentRequest:
       type: object
       properties:
-        roles:
-          type: string
-          description: 'New position, created on first use. Aliases: `role`, `position`.'
-          maxLength: 100
         status:
-          type: string
-          description: New job status, e.g. `active` or `terminated`.
-          maxLength: 50
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          description: |-
+            Required. New job status: `active` or `inactive`.
+
+            * `active` - active
+            * `inactive` - inactive
+      required:
+      - status
     UserDetails:
       type: object
       description: User model w/o password

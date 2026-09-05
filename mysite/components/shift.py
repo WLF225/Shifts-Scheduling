@@ -1,14 +1,4 @@
-"""Business rules for shifts - the only tier that decides who works when.
-
-Job resolution and the four eligibility rules live here rather than in a shared
-``jobs.py`` because staffing a shift is their only caller. ``_resolve_job``
-answers "which job does this body mean", and it only means anything relative to
-a role: all three of its branches are scoped to the brand that owns the role's
-schedule, and the last one reads the role's *name* as a position name. Split
-into a job module, the pair would be two halves of one decision sitting a file
-apart, and the rule that they are checked together - always, on every write
-that can put a person on a slot - would stop being visible.
-"""
+"""Business rules for shifts and their staffing."""
 from __future__ import annotations
 
 from datetime import timedelta
@@ -26,14 +16,12 @@ from components.parsing import (
     present_keys,
 )
 from components.role import RoleComponent
-from database.models import Shift
+from database.models import JobStatus, Shift
 from repositories.job import JobRepository
 from repositories.shift import ShiftRepository
 
-# The body keys that name a person, in ``_resolve_job``'s precedence order.
 STAFFING_KEYS = ("job_id", "employee_id")
 
-# The body keys :meth:`ShiftComponent._times` accepts.
 TIME_KEYS = (
     "starting_time",
     "start_time",
@@ -46,52 +34,19 @@ TIME_KEYS = (
 
 
 class ShiftComponent(BaseComponent):
-    """Reads and writes shifts, and owns every staffing rule."""
+    """Creates unstaffed shifts, then staffs or retimes them."""
 
-    # --------------------------------------------------------------- reads
-
-    def list(self, role_pk=None, schedule_pk=None, employee_pk=None) -> Sequence[Shift]:
-        """Shifts under whichever parent the URL names.
-
-        The parents are tried most-specific first, matching the two mounts: an
-        employee listing is that person's calendar, a role listing is one
-        slot's history. Those are the only two, so there is no fall-through
-        branch and no unscoped listing - every shift a caller can list is
-        listed under a parent that names who it is for or what slot it fills.
-
-        ``schedule_pk`` is still a parameter because the role-nested mount
-        captures it, but it is never the *sole* parent of a read: the
-        ``schedules/{schedule_pk}/shifts`` mount is gone, so a schedule alone
-        no longer addresses a listing. It is used for scoping in :meth:`get`.
-
-        The final ``raise`` is **unreachable through routing**: both mounts are
-        nested, so DRF always supplies one of the two parents. It is a guard
-        against a future registration that forgets one, or a direct call from a
-        script - a wiring mistake, not a bad request, which is why it is not a
-        :class:`ValidationError`. A 400 there would blame the caller for a bug
-        in this module, and returning ``[]`` instead would silently answer a
-        parentless listing with "no shifts" rather than admitting it cannot
-        scope the query at all.
-        """
+    def list(self, role_pk=None, employee_pk=None) -> Sequence[Shift]:
+        """Shifts under one role, or one employee's."""
         shifts = self._repo(ShiftRepository)
         if employee_pk is not None:
             return shifts.for_employee(employee_pk)
         if role_pk is not None:
             return shifts.for_role(role_pk)
-        raise RuntimeError(
-            "ShiftComponent.list needs role_pk or employee_pk; a shift listing "
-            "is always addressed under a role or an employee"
-        )
+        raise RuntimeError("ShiftComponent.list needs role_pk or employee_pk; a shift listing is always addressed under a role or an employee")
 
     def get(self, pk=None, role_pk=None, schedule_pk=None, employee_pk=None) -> Shift:
-        """One shift, scoped to whichever parents the URL names.
-
-        A shift reached through the wrong role, schedule or employee is a 404
-        rather than a 200: the URL asserts where the row lives, and answering
-        with a shift from somewhere else would make the nesting a lie. The
-        parents are read off the row's own relationships, so this costs no
-        extra query.
-        """
+        """One shift, 404 unless every named parent matches."""
         shift = self._repo(ShiftRepository).get(pk)
         if shift is None:
             raise NotFound("Shift not found")
@@ -106,21 +61,8 @@ class ShiftComponent(BaseComponent):
             raise NotFound(f"Shift {pk} not found here")
         return shift
 
-    # -------------------------------------------------------------- writes
-
     def create(self, data: Any, schedule_pk=None, role_pk=None) -> Shift:
-        """Create an unstaffed slot: role, date and span, nobody on it.
-
-        ``date``, ``starting_time`` and ``finishing_time`` are all required and
-        the span must be non-empty; :meth:`_times` enforces both. The date must
-        also land inside the schedule's own week, which :meth:`_check_week`
-        enforces. Nobody is attached here, so none of the four eligibility rules
-        can be checked yet - they belong to :meth:`update`.
-
-        A body carrying ``employee_id`` or ``job_id`` is rejected rather than
-        silently ignored: a caller sending one plainly expects the shift to come
-        out staffed, and a 201 with ``employee_id: null`` would look like a bug.
-        """
+        """Open an unstaffed slot; rejects naming anyone."""
         role = self._role(schedule_pk, role_pk)
 
         body = body_dict(data)
@@ -139,41 +81,8 @@ class ShiftComponent(BaseComponent):
             job_id=None, role_id=role.id, **fields
         )
 
-    def update(self, data: Any, pk=None, schedule_pk=None, role_pk=None, employee_pk=None) -> Shift:
-        """Retime a shift, staff it, or unstaff it - the one write on a slot.
-
-        The shift is addressed by its own pk and must really sit under the role
-        the URL names, in the same spirit as :meth:`get`: reaching a shift
-        through the wrong role is a 404, not a silent write to someone else's
-        row. Only the role is checked here, because a role is the only parent a
-        write is ever addressed under.
-
-        The three time fields are optional here, unlike in :meth:`create`. A
-        body with none of them is a pure re-assignment and keeps the shift's
-        stored span; a body with any of them is parsed by :meth:`_times` in
-        full, so a partial triple is a 400 rather than a half-moved shift, and
-        the *new* date is put through :meth:`_check_week`. A body that does not
-        touch the times is not week-checked at all: the stored date was already
-        in the window when it was written, and re-checking it would turn an
-        unrelated re-assignment into a 400.
-
-        ``employee_id`` (or an explicit ``job_id``) staffs the shift, enforcing
-        all four eligibility rules through :meth:`_resolve_job` - which pins the
-        job to the role's brand, rule 1 - and :meth:`_check_assignment` -
-        position name, active status and the employee's own calendar, rules 2-4.
-        The rules are checked against the times being *written*, so retiming and
-        staffing in one PUT is validated against the new span. Nothing is
-        written unless every rule passes.
-
-        Nulling *every* staffing key present unstaffs the slot; no rules apply,
-        because taking someone off a shift can never create a clash. Omitting
-        the keys entirely leaves the existing assignment alone. See
-        :meth:`_staffing_intent` for what a half-null body does.
-
-        ``employee_pk`` is accepted but unused: ``employees/<id>/shifts/<id>``
-        no longer binds PUT at all, so no caller can reach this method without
-        a role. :meth:`_role` still raises its 400 if one is somehow missing.
-        """
+    def update(self, data: Any, pk=None, schedule_pk=None, role_pk=None) -> Shift:
+        """Staffs, retimes, or unstaffs one shift."""
         role = self._role(schedule_pk, role_pk)
 
         shifts = self._repo(ShiftRepository)
@@ -203,7 +112,6 @@ class ShiftComponent(BaseComponent):
             changes["job_id"] = job.id
         elif changes:
             # Retiming a staffed shift must not create a clash.
-            # Safe to read shift.job here: this branch never writes job_id.
             job = shift.job
             if job is not None:
                 self._check_assignment(job, role, fields, exclude_shift_id=shift.id)
@@ -212,35 +120,9 @@ class ShiftComponent(BaseComponent):
             shift = shifts.update(shift, **changes)
         return shift
 
-    # ------------------------------------------------------------- staffing
-
     @staticmethod
     def _staffing_intent(body: dict) -> str | None:
-        """Does this body staff the shift, unstaff it, or leave it alone?
-
-        Returns ``"staff"``, ``"unstaff"``, or ``None`` for "no staffing key was
-        sent". Split out because the previous inline version got this wrong:
-        it gated on ``employee_id`` first and then read the value with a
-        ``pick`` that tried ``employee_id`` first, while ``_resolve_job``
-        resolves ``job_id`` first. So ``{"employee_id": null, "job_id": 7}``
-        took the unstaff branch on the null it found in ``employee_id`` and
-        wrote ``job_id = None`` - the exact opposite of the request, at 200,
-        with all four eligibility rules skipped.
-
-        The rule now, on the keys actually present:
-
-        * none present - ``None``. The assignment is untouched.
-        * every one present is null - ``"unstaff"``. Clearing is unambiguous
-          however it is spelled.
-        * every one present is non-null, and they agree - ``"staff"``.
-          Agreement means the named job really is the named employee's job at
-          this brand, which only :meth:`_resolve_job` can confirm, so it is
-          checked there and not here.
-        * anything else - a :class:`ValidationError`. A body that is half-null
-          (``employee_id: null`` with ``job_id: 7``) is contradictory: one key
-          says clear the slot and the other says fill it. Picking a winner by
-          key order is how the bug happened, so the request is refused instead.
-        """
+        """Read the body as staff, unstaff, or neither."""
         present = present_keys(body, *STAFFING_KEYS)
         if not present:
             return None
@@ -264,28 +146,7 @@ class ShiftComponent(BaseComponent):
         )
 
     def _resolve_job(self, role, body):
-        """Work out which job a shift belongs to.
-
-        Three ways in, in order of precedence:
-
-        1. An explicit ``job_id`` in the body.
-        2. An ``employee_id``, pinned to the brand that owns the role's schedule.
-        3. Nothing at all - in which case the role's *name* is read as a position
-           name and the single active job for that position in the brand is used.
-
-        All three are scoped to the brand that owns the role's schedule. An
-        explicit ``job_id`` is no exception: accepting one from another brand
-        would let a caller staff this role with someone who does not work here.
-
-        When both ``job_id`` and ``employee_id`` are sent non-null, ``job_id``
-        keeps its precedence - but the two must agree, because a body naming a
-        job and an employee who do not belong together has no single meaning
-        and silently honouring one of them is the class of bug
-        :meth:`_staffing_intent` exists to stop.
-
-        Returns the job; every failure raises, so there is no error tuple to
-        unpack and no way for a caller to forget to check it.
-        """
+        """The job named, else the role's sole holder."""
         jobs = self._repo(JobRepository)
 
         schedule = role.schedule
@@ -326,7 +187,7 @@ class ShiftComponent(BaseComponent):
                 )
             return job
 
-        candidates = jobs.by_position_name(brand_id, role.name, status="active")
+        candidates = jobs.by_position_name(brand_id, role.name, status=JobStatus.ACTIVE)
         if not candidates:
             raise ValidationError(
                 f"No active employee for role {role.name!r} in this brand; "
@@ -341,28 +202,7 @@ class ShiftComponent(BaseComponent):
         return candidates[0]
 
     def _check_assignment(self, job, role, fields, exclude_shift_id=None) -> None:
-        """Is this job allowed to work this role over this span?
-
-        Called from every path that can put an employee on a shift, which today
-        is :meth:`update` alone - staffing a slot, and retiming one that is
-        already staffed - so the four rules are enforced in exactly one place.
-
-        :meth:`_resolve_job` has already pinned the job to the role's brand
-        (rule 1) on all three of its branches. What is left is:
-
-        * the job's position must be the role it is being booked into. There is
-          no FK between Position and Role, so they are matched by name, which is
-          the convention the seed data already relies on;
-        * the job must be active - a terminated employment cannot be scheduled;
-        * the employee must be free, across *every* job they hold. Two brands is
-          still one person.
-
-        ``exclude_shift_id`` is the row the PUT is about to write; without it a
-        shift would always be found to clash with itself.
-
-        Returns nothing and raises :class:`ValidationError` on a violation, so
-        a caller cannot proceed by ignoring a returned message.
-        """
+        """Position matches, job active, employee not double-booked."""
         employee = job.employee
         who = f"Employee {job.employee_id}" + (
             f" ({employee.name})" if employee is not None else ""
@@ -375,10 +215,10 @@ class ShiftComponent(BaseComponent):
                 f"fill role {role.name!r}"
             )
 
-        if job.status != "active":
+        if job.status != JobStatus.ACTIVE:
             raise ValidationError(
-                f"{who} has job {job.id} at brand {job.brand_id} with status "
-                f"{job.status!r}, not 'active', so they cannot be scheduled"
+                f"{who} is inactive at brand {job.brand_id} (job {job.id}) and "
+                "cannot be scheduled"
             )
 
         clashes = self._repo(ShiftRepository).overlapping_for_employee(
@@ -403,38 +243,13 @@ class ShiftComponent(BaseComponent):
                 f"{fields['finishing_time'].isoformat()}"
             )
 
-    # ------------------------------------------------------------ internals
-
     def _role(self, schedule_pk, role_pk):
-        """The role this write is addressed under.
-
-        Delegates to :meth:`components.role.RoleComponent.for_write` so the
-        check reads identically from shift create and shift update, and shares
-        this component's session.
-        """
+        """The role this write is addressed under."""
         return RoleComponent(self.session).for_write(schedule_pk, role_pk)
 
     @staticmethod
     def _check_week(role, on_date) -> None:
-        """Does this date fall in the week the role's schedule covers?
-
-        A schedule covers exactly one week, anchored to its own
-        ``starting_date`` - whatever weekday that happens to be. A Friday-start
-        schedule covers Friday to the following Thursday. So the window is
-        ``[starting_date, starting_date + 6 days]``, inclusive at both ends,
-        and nothing here cares which weekday it opens on.
-
-        Called from both writes rather than folded into :meth:`_times`, which
-        is a ``staticmethod`` over the body alone and has no role to ask. Giving
-        it one would make date *parsing* depend on a schedule lookup; keeping
-        the rule here leaves :meth:`_times` answering "what did the body say"
-        and this answering "is that allowed", which is the same split
-        :meth:`_resolve_job` and :meth:`_check_assignment` already use.
-
-        An orphan role is treated as :meth:`_resolve_job` treats it - a
-        :class:`ValidationError` naming the missing schedule, not an
-        ``AttributeError`` on ``None.starting_date``.
-        """
+        """Reject a date outside the schedule's seven days."""
         schedule = role.schedule
         if schedule is None:
             raise ValidationError(
@@ -451,13 +266,7 @@ class ShiftComponent(BaseComponent):
 
     @staticmethod
     def _times(body: dict) -> dict:
-        """The three time columns, parsed. ``starting_date`` maps to ``date``.
-
-        All three are demanded together: once a caller mentions any time key,
-        a partial triple is a 400 rather than a half-moved shift. The keys this
-        accepts are :data:`TIME_KEYS`, which is what :meth:`update` gates on,
-        so the two agree on what counts as a time key.
-        """
+        """Parse date and span; finish must follow start."""
         starting = parse_time(pick(body, "starting_time", "start_time"), "starting_time")
         finishing = parse_time(pick(body, "finishing_time", "finish_time", "ending_time"), "finishing_time")
 
