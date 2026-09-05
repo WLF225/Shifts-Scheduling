@@ -1,7 +1,7 @@
 import logging
 
 handler = logging.FileHandler('Logs.txt')
-handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s '))
 
 logger = logging.getLogger(__name__)
 logger.addHandler(handler)

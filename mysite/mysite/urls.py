@@ -11,16 +11,52 @@ forced by the endpoint list:
 * ``trailing_slash`` is off, matching the ``/auth/`` convention. With
   ``APPEND_SLASH`` on, a POST to the slash-suffixed spelling 301s and drops its
   body, so the slash-less URL has to be the canonical one.
-* The list route also accepts ``PUT``, mapped to ``update``. The shift upsert
-  is addressed by ``(role, employee, date)`` rather than by a shift pk, so it
-  has no id to put in the URL and has to act on the collection.
+* ``register`` accepts ``exclude_methods``, which drops verbs the stock route
+  table would otherwise bind for that one mount. See ``_ExcludeMethodsMixin``.
 
-Everything else is the stock behaviour.
+Otherwise the routers emit exactly DRF's list and detail routes, with no extra
+verbs bound to the list route.
+
+Three routes are removed this way, because the same viewset is mounted at
+several prefixes and a verb that is right on one mount is wrong on another:
+
+* ``PUT /employees/{id}`` - editing employment needs a brand, so the write is
+  ``PUT /brands/{brand_pk}/employees/{id}`` and the top-level spelling had no
+  brand to write against.
+* ``POST /employees/{employee_pk}/shifts`` and
+  ``PUT /employees/{employee_pk}/shifts/{id}`` - a shift is written under its
+  role, and the employee mount names none.
+
+**A schedule is always addressed under its brand.** There is deliberately no
+top-level ``/api/v1/schedules`` mount and no schedule reachable without a brand
+id: a schedule belongs to exactly one brand, and a URL that omits the brand
+would let a caller read or write across brands by guessing ids. The whole
+schedule subtree therefore hangs off ``brands/{brand_pk}``:
+
+* ``brands/{brand_pk}/schedules[/{id}]``
+* ``brands/{brand_pk}/schedules/{schedule_pk}/roles[/{id}]``
+* ``brands/{brand_pk}/schedules/{schedule_pk}/roles/{role_pk}/shifts[/{id}]``
+
+**A shift is always addressed under its role.** There is deliberately no
+``schedules/{schedule_pk}/shifts`` mount: a shift belongs to exactly one role,
+and a schedule-level listing was a second way to reach the same rows whose
+parent said less than the row itself does. The only other way in is the
+employee's own calendar, ``employees/{employee_pk}/shifts``, which is read-only:
+its write verbs are not bound at all, so they are a 405, not a 400.
+
+The scoping is not left to routing alone - ``ScheduleComponent`` requires
+``brand_pk`` and resolves schedules through ``schedule_for_brand`` - so the
+rule survives anyone re-registering a router.
+
+Outside that subtree: ``employees[/{id}]``, ``brands[/{id}]``,
+``brands/{brand_pk}/employees``, ``employees/{employee_pk}/shifts`` and
+``employees/{employee_pk}/times``.
 """
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from rest_framework import routers
+from rest_framework.urlpatterns import format_suffix_patterns
 from rest_framework_nested import routers as nested_routers
 from django.urls import path, include
 
@@ -38,89 +74,123 @@ from mysite.views import (
 # ------------------------------------------------------------------- routers
 
 
-def _collection_put_routes(routes):
-    """Copy ``routes`` with ``PUT`` added to the list route's mapping."""
-    patched = []
-    for route in routes:
-        if isinstance(route, routers.Route) and route.mapping.get("get") == "list":
-            mapping = dict(route.mapping)
-            mapping.setdefault("put", "update")
-            route = route._replace(mapping=mapping)
-        patched.append(route)
-    return patched
+class _ExcludeMethodsMixin:
+    """Lets one registration drop verbs the stock route table would bind.
 
+    DRF binds ``create`` on every list route and ``update`` on every detail
+    route, for every registration. The same viewset is mounted at several
+    prefixes here, so a verb that is wrong on one mount is right on another -
+    which makes the viewset the wrong place to remove it. ``register`` therefore
+    takes ``exclude_methods``, the http methods that registration must not bind,
+    and they are filtered out of the mappings for that basename alone.
 
-class SlashlessRouter(routers.DefaultRouter):
-    """Top-level router: no trailing slash, collection-level PUT allowed."""
-
-    routes = _collection_put_routes(routers.DefaultRouter.routes)
+    ``get_routes`` is told the viewset but not the basename, and a viewset here
+    is mounted more than once - so the exclusions are applied by rebuilding
+    ``self.routes`` around one registration at a time in ``get_urls``, which is
+    the only place that knows both.
+    """
 
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("trailing_slash", False)
         super().__init__(*args, **kwargs)
+        self._excluded = {}
+
+    def register(self, prefix, viewset, basename=None, exclude_methods=None):
+        if exclude_methods:
+            self._excluded[basename] = set(exclude_methods)
+        super().register(prefix, viewset, basename=basename)
+
+    def _routes_without(self, excluded):
+        return [
+            route._replace(
+                mapping={
+                    method: action
+                    for method, action in route.mapping.items()
+                    if method not in excluded
+                }
+            )
+            if isinstance(route, routers.Route)
+            else route
+            for route in self.routes
+        ]
+
+    def get_urls(self):
+        if not self._excluded:
+            return super().get_urls()
+
+        registry, stock, root = self.registry, self.routes, self.include_root_view
+        collected = []
+        try:
+            self.include_root_view = False
+            for entry in registry:
+                self.registry = [entry]
+                self.routes = self._routes_without(self._excluded.get(entry[2], set()))
+                collected += super().get_urls()
+        finally:
+            self.registry, self.routes = registry, stock
+            self.include_root_view = root
+
+        if self.include_root_view:
+            root_url = path('', self.get_api_root_view(api_urls=collected),
+                            name=self.root_view_name)
+            collected += (
+                format_suffix_patterns([root_url])
+                if self.include_format_suffixes
+                else [root_url]
+            )
+        return collected
 
 
-class SlashlessNestedRouter(nested_routers.NestedDefaultRouter):
+class SlashlessRouter(_ExcludeMethodsMixin, routers.DefaultRouter):
+    """Top-level router: stock routes, no trailing slash."""
+
+
+class SlashlessNestedRouter(_ExcludeMethodsMixin, nested_routers.NestedDefaultRouter):
     """The nested equivalent, so the whole tree behaves identically."""
-
-    routes = _collection_put_routes(nested_routers.NestedDefaultRouter.routes)
-
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault("trailing_slash", False)
-        super().__init__(*args, **kwargs)
 
 
 # ---------------------------------------------------------------- top level
 router = SlashlessRouter()
-router.register('employees', EmployeeViewSet, basename='employees')
+router.register(
+    'employees', EmployeeViewSet, basename='employees', exclude_methods=['put']
+)
 router.register('brands', BrandViewSet, basename='brands')
-
-# Registered before 'schedules' so the literal wins.
-# Unnested roles only ever answer with 400.
-router.register('schedules/roles', RoleViewSet, basename='roles')
-
-router.register('schedules', ScheduleViewSet, basename='schedules')
 
 # ----------------------------------------------------------- brands/<id>/...
 brands_router = SlashlessNestedRouter(router, 'brands', lookup='brand')
 brands_router.register('employees', EmployeeViewSet, basename='brand-employees')
 brands_router.register('schedules', ScheduleViewSet, basename='brand-schedules')
 
+# ------------------------------------ brands/<id>/schedules/<id>/... 
 brand_schedules_router = SlashlessNestedRouter(
     brands_router, 'schedules', lookup='schedule'
 )
 brand_schedules_router.register('roles', RoleViewSet, basename='brand-schedule-roles')
 
-# -------------------------------------------------------- schedules/<id>/...
-schedules_router = SlashlessNestedRouter(router, 'schedules', lookup='schedule')
-schedules_router.register('roles', RoleViewSet, basename='schedule-roles')
-schedules_router.register('shifts', ShiftViewSet, basename='schedule-shifts')
-
-# Deepest chain: shift create and the PUT upsert.
-schedule_roles_router = SlashlessNestedRouter(schedules_router, 'roles', lookup='role')
-schedule_roles_router.register('shifts', ShiftViewSet, basename='schedule-role-shifts')
+# Deepest chain: shift create and detail PUT, which need a role.
+brand_schedule_roles_router = SlashlessNestedRouter(
+    brand_schedules_router, 'roles', lookup='role'
+)
+brand_schedule_roles_router.register(
+    'shifts', ShiftViewSet, basename='brand-schedule-role-shifts'
+)
 
 # -------------------------------------------------------- employees/<id>/...
 employees_router = SlashlessNestedRouter(router, 'employees', lookup='employee')
-employees_router.register('shifts', ShiftViewSet, basename='employee-shifts')
+employees_router.register(
+    'shifts',
+    ShiftViewSet,
+    basename='employee-shifts',
+    exclude_methods=['post', 'put'],
+)
 employees_router.register('times', EmployeeTimeViewSet, basename='employee-times')
-employees_router.register('schedules', ScheduleViewSet, basename='employee-schedules')
-
-employee_schedules_router = SlashlessNestedRouter(
-    employees_router, 'schedules', lookup='schedule'
-)
-employee_schedules_router.register(
-    'shifts', ShiftViewSet, basename='employee-schedule-shifts'
-)
 
 api_v1_urls = (
     router.urls
     + brands_router.urls
     + brand_schedules_router.urls
-    + schedules_router.urls
-    + schedule_roles_router.urls
+    + brand_schedule_roles_router.urls
     + employees_router.urls
-    + employee_schedules_router.urls
 )
 
 urlpatterns = [

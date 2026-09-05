@@ -53,6 +53,12 @@ class ShiftRepository(BaseRepository[Shift]):
     def for_employee_in_schedule(
         self, employee_pk: int, schedule_pk: int
     ) -> Sequence[Shift]:
+        """One employee's shifts within one schedule.
+
+        Currently unused. Its only caller was the ``employees/<id>/schedules/
+        <id>/shifts`` mount, which has been removed as a duplicate of the
+        employee- and schedule-nested listings.
+        """
         if employee_pk is None or schedule_pk is None:
             raise InvalidFilter("employee_pk and schedule_pk are both required")
         return (
@@ -69,15 +75,15 @@ class ShiftRepository(BaseRepository[Shift]):
     ) -> Shift | None:
         """The shift occupying one role's slot at one time on one day, if any.
 
-        This is the lookup behind the collection-level PUT upsert. The key is
-        deliberately ``(role, date, starting_time)`` and not ``(role, date)``:
-        a role routinely has several shifts on the same day - a morning and an
-        evening Cashier, say - and keying on the day alone would let a PUT for
-        the evening slot silently overwrite the morning one.
+        Currently unused. This was the lookup behind the collection-level PUT
+        upsert, which no longer exists: a shift is now addressed by its own pk
+        under its role, so nothing needs to find a row by its slot. Kept as a
+        query the repository can still answer.
 
-        It matches staffed and unstaffed rows alike. The job is not part of the
-        key, because PUT no longer staffs anything; an existing row keeps
-        whatever ``job_id`` it already has.
+        The key is deliberately ``(role, date, starting_time)`` and not
+        ``(role, date)``: a role routinely has several shifts on the same day -
+        a morning and an evening Cashier, say - so the day alone does not
+        identify one. It matches staffed and unstaffed rows alike.
         """
         if role_pk is None or on_date is None or starting_time is None:
             raise InvalidFilter("role_pk, date and starting_time are all required")
@@ -110,9 +116,9 @@ class ShiftRepository(BaseRepository[Shift]):
         ``new.starting < existing.finishing`` - so a shift starting exactly when
         another finishes is not a clash.
 
-        ``exclude_shift_pk`` drops one row from consideration; the PUT upsert
-        passes the row it is about to replace, which would otherwise always
-        clash with itself.
+        ``exclude_shift_pk`` drops one row from consideration; the shift PUT
+        passes the row it is about to write, which would otherwise always clash
+        with itself.
         """
         if employee_pk is None or on_date is None:
             raise InvalidFilter("employee_pk and date are both required")

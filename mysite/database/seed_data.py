@@ -23,8 +23,10 @@ The data satisfies five invariants, all re-checked by :func:`validate`:
 4. No employee has two shifts whose ``[starting_time, finishing_time)``
     intervals overlap on the same date -- checked across every brand and
     schedule, since an employee may hold jobs at more than one brand.
-5. ``shift.date`` falls inside ``[schedule.starting_date, +6 days]``, and every
-    ``starting_date`` is a Monday.
+5. ``shift.date`` falls inside ``[schedule.starting_date, +6 days]``. A
+    schedule covers exactly one week anchored to its own ``starting_date``,
+    whatever weekday that is; the seed data happens to use Monday starts, but
+    nothing requires it.
 """
 from __future__ import annotations
 
@@ -45,7 +47,8 @@ from database.models import (
 
 # --------------------------------------------------------------- declarative data
 
-#: Monday. Every schedule's ``starting_date`` is this or a later Monday.
+#: The first seeded week. Monday here only by convention - a schedule's week is
+#: anchored to its own ``starting_date`` and may open on any weekday.
 WEEK_1 = date(2026, 9, 7)
 WEEK_2 = WEEK_1 + timedelta(days=7)
 
@@ -96,12 +99,12 @@ JOBS: tuple[tuple[str, str, str, str], ...] = (
     ("Bilal Farouk", "noodle", "Cashier", "active"),  # second brand
 )
 
-#: (schedule key, brand key, starting Monday, creator employee name)
-SCHEDULES: tuple[tuple[str, str, date, str], ...] = (
-    ("bean-w1", "bean", WEEK_1, "Amina Hassan"),
-    ("bean-w2", "bean", WEEK_2, "Amina Hassan"),
-    ("grill-w1", "grill", WEEK_1, "Farah Zaki"),
-    ("noodle-w1", "noodle", WEEK_1, "Jana Kamal"),
+#: (schedule key, brand key, starting date - the day the week opens)
+SCHEDULES: tuple[tuple[str, str, date], ...] = (
+    ("bean-w1", "bean", WEEK_1),
+    ("bean-w2", "bean", WEEK_2),
+    ("grill-w1", "grill", WEEK_1),
+    ("noodle-w1", "noodle", WEEK_1),
 )
 
 #: schedule key -> role names. Only positions actually staffed at that brand.
@@ -250,15 +253,10 @@ def seed(session: Session | None = None, *, force: bool = False) -> dict[str, in
 
         schedules: dict[str, Schedule] = {}
         schedule_brand: dict[str, str] = {}
-        for sched_key, brand_key, starting_date, creator in SCHEDULES:
-            if starting_date.weekday() != 0:
-                raise SeedError(
-                    f"schedule {sched_key!r} starting_date {starting_date} is not a Monday"
-                )
+        for sched_key, brand_key, starting_date in SCHEDULES:
             schedules[sched_key] = Schedule(
                 brand=brands[brand_key],
                 starting_date=starting_date,
-                creator=employees[creator],
             )
             schedule_brand[sched_key] = brand_key
         session.add_all(schedules.values())
@@ -402,14 +400,8 @@ def validate(session: Session | None = None, *, raise_on_violation: bool = True)
     # without relying on the role it points at (see invariant 1 below).
     schedules_by_brand: dict[int, list[Schedule]] = {}
 
-    # Invariant 5b: every schedule starts on a Monday.
     for schedule in session.query(Schedule).all():
         schedules_by_brand.setdefault(schedule.brand_id, []).append(schedule)
-        if schedule.starting_date.weekday() != 0:
-            violations.append(
-                f"schedule {schedule.id}: starting_date {schedule.starting_date} "
-                f"is a {schedule.starting_date.strftime('%A')}, not a Monday"
-            )
 
     # A brand must not have two schedules covering the same week. This is its
     # own root cause, reported separately: invariant 1 identifies a shift's

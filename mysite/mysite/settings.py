@@ -90,14 +90,25 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_SCHEMA_CLASS': 'swagger.common.PathParameterSchema',
 }
 
 ROOT_URLCONF = 'mysite.urls'
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Your Project API',
-    'DESCRIPTION': 'Your project description',
+    'TITLE': 'Brand Scheduling API',
+    'DESCRIPTION': (
+        'Shift scheduling across brands. A brand employs people through Jobs, '
+        'opens a Schedule, and fills it with Roles; each Role holds Shifts, '
+        'which are created unstaffed and staffed by a later PUT once the '
+        'employee is eligible and free.\n\n'
+        'Two conventions worth knowing before reading the operations below:\n\n'
+        '- Dates accept `D/M/YYYY` as well as ISO `YYYY-MM-DD`, and times '
+        'accept bare integer hours, so `8` means 08:00. Body keys are matched '
+        'case-insensitively and several have aliases, noted per field.\n'
+        '- The two failure shapes differ: a 400 answers `{"error": "..."}` '
+        'while a 404 answers `{"detail": "..."}`.'
+    ),
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     # OTHER SETTINGS

@@ -25,7 +25,7 @@ class Brand(Base):
     __tablename__ = "brands"
 
     name = Column(String(100), nullable=False)
-    location = Column(String(255))
+    location = Column(String(255), nullable=False)
 
     jobs = relationship("Job", back_populates="brand")
     schedules = relationship("Schedule", back_populates="brand")
@@ -58,10 +58,8 @@ class Schedule(Base):
 
     brand_id = Column(Integer, ForeignKey("brands.id"), nullable=False)
     starting_date = Column(Date, nullable=False)
-    created_by = Column(Integer, ForeignKey("employees.id"))
 
     brand = relationship("Brand", back_populates="schedules")
-    creator = relationship("Employee")
     roles = relationship("Role", back_populates="schedule")
 
 

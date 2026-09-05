@@ -55,8 +55,11 @@ There is **no requirements.txt**, no pyproject.toml, no setup.py — the venv at
 
 *Schema / serialization / docs*
 - `marshmallow` 4.3 + `marshmallow-sqlalchemy` 1.5 — **live**. `mysite/schemas.py` is
-  the only serialization layer; viewsets call `XSchema(...).dump(...)` directly. There
-  are no DRF serializers anywhere in the project.
+  the only serialization layer on the request path; viewsets call
+  `XSchema(...).dump(...)` directly, or hand-build a dict via
+  `components/payloads.py`. The `inline_serializer`s in `swagger/` are the one
+  place DRF serializers appear, and they are documentation only — nothing
+  validates or renders through them.
 - `drf-spectacular` 0.30 (+ `PyYAML`) — OpenAPI 3.0.3, Swagger-UI, ReDoc. See below.
 
 **Installed but not used by any project code** (verified by grep over `mysite/`):
@@ -103,10 +106,26 @@ registered only so `manage.py init_db` is discovered; it has no migrations.
   rather than querying from a view.
 - `mysite/schemas.py` — one `SQLAlchemyAutoSchema` per model, `load_instance` and
   `include_fk` on, bound to the shared scoped session. Views only ever `.dump()`.
+- `components/` — the domain tier, between views and repositories. One component
+  per resource (`brand`, `employee`, `employee_time`, `role`, `schedule`,
+  `shift`) on `BaseComponent`, which takes an optional `Session` and builds
+  repositories through `_repo` — the same injection seam repositories have.
+  All request validation and every business rule lives here, not in the views.
+  Shared helpers: `parsing.py` (input coercion — D/M/YYYY dates, integer hours,
+  case-insensitive `pick`, raising `ParseError`), `payloads.py`
+  (`job_payload` / `shift_payload`, the hand-built response dicts that flatten
+  a walk across tables), `exceptions.py` (framework-free, like the repository
+  one).
 - `mysite/views.py` — six `viewsets.ViewSet` subclasses (not `ModelViewSet`):
-  Employee, EmployeeTime, Brand, Schedule, Role, Shift. Input coercion is
-  hand-written helpers at the top of the module (D/M/YYYY dates, integer hours,
-  case-insensitive keys) raising `ParseError` → 400.
+  Employee, EmployeeTime, Brand, Schedule, Role, Shift. They are thin: parse
+  nothing, decide nothing, call one component method and dump the result. No
+  view has a try/except — see "Error handling".
+- `swagger/` — one module per viewset holding the drf-spectacular
+  `extend_schema_view` decorator applied to it (`employee_schema`,
+  `shift_schema`, …), plus `common.py` with the shared path parameters
+  (`BRAND_PK`, `ID`, …) and the `shape` / `by_mount` / `not_found` /
+  `bad_request` helpers. Keeping it out of `views.py` is what stops the
+  annotations from burying the code.
 - `middleware/db_session.py` — `DbSessionMiddleware` calls `session.remove()` in a
   `finally`, which is what makes the scoped session per-request. It must stay
   before anything that queries. `middleware.Middleware.SimpleMiddleware` is a
@@ -119,13 +138,30 @@ departures from DRF defaults, both in `SlashlessRouter` / `SlashlessNestedRouter
 
 - `trailing_slash=False`. With `APPEND_SLASH` on, a POST to the slash-suffixed
   spelling 301s and drops its body, so the slash-less URL is canonical.
-- The **list** route also accepts `PUT` → `update`, because the shift upsert is
-  addressed by `(role, employee, date)` and has no pk to put in the URL.
+- `register(..., exclude_methods=[...])` drops verbs the stock route table would
+  bind for one mount only (`_ExcludeMethodsMixin`). The same viewset is mounted at
+  several prefixes, so a verb that is right on one is wrong on another. Used to
+  remove `PUT /employees/{id}` (editing employment needs a brand) and
+  `POST`/`PUT` on `employees/{employee_pk}/shifts` (a write needs a role) — all
+  405 now. The brand- and role-nested equivalents are unaffected.
 
-Top level: `employees`, `brands`, `schedules/roles` (registered **before**
-`schedules` so the literal wins), `schedules`. Nested: brands→employees/schedules,
-brands/schedules→roles, schedules→roles/shifts, schedules/roles→shifts,
-employees→shifts/times/schedules, employees/schedules→shifts. `urlpatterns` adds
+Top level: `employees`, `brands` — nothing else. Nested:
+brands→employees/schedules, brands/schedules→roles,
+brands/schedules/roles→shifts, employees→shifts/times.
+
+Two scoping rules the tree enforces, both deliberate:
+
+- **A schedule is always addressed under its brand.** There is no top-level
+  `schedules` mount and no schedule reachable without a brand id, so a caller
+  cannot read or write across brands by guessing ids. `ScheduleComponent`
+  requires `brand_pk` and resolves through `schedule_for_brand`, so the rule
+  survives anyone re-registering a router.
+- **A shift is always addressed under its role.** There is no
+  `schedules/{schedule_pk}/shifts` mount. The only other way in is
+  `employees/{employee_pk}/shifts`, which is read-only (see `exclude_methods`
+  above).
+
+`urlpatterns` adds
 `admin/`, the `api/v1/` mount, the two `api/v1/auth/` includes, and the schema routes.
 
 ### Session injection
@@ -136,13 +172,31 @@ roll back. Preserve that parameter when extending repositories.
 
 ### Error handling
 
-`repositories/exceptions.py` is intentionally framework-free (`RepositoryError`,
-`NotFound`, `InvalidFilter`) — nothing in `repositories/` or `database/` imports
-Django or DRF. `mysite/exceptions.py` is the single translation point, wired as
-DRF's `EXCEPTION_HANDLER`: `NotFound` → 404 `not_found`, `InvalidFilter` → 400
-`invalid_filter`, any other `RepositoryError` → 500 `db_error` (message flattened
-to "Database error"), then delegates to DRF's own handler. So no view needs a
-try/except and no repository needs to import DRF.
+`components/exceptions.py` (`ComponentError`, `ValidationError`, `NotFound`,
+`Conflict`) and `repositories/exceptions.py` (`RepositoryError`, `NotFound`,
+`InvalidFilter`) are both intentionally framework-free — nothing in
+`components/`, `repositories/` or `database/` imports Django or DRF. Both
+packages export a class named `NotFound`; `mysite/exceptions.py` imports them
+under distinct aliases, so keep doing that.
+
+`mysite/exceptions.py` is the single translation point, wired as DRF's
+`EXCEPTION_HANDLER`. Component branches are checked **first** — a component is
+the tier that decided what the outcome means — then repository ones:
+
+| raised | → |
+| --- | --- |
+| `components.NotFound` | 404 `not_found` |
+| `components.ValidationError` | 400 `{"error": ...}` |
+| `components.Conflict` | 409 `conflict` |
+| any other `ComponentError` | 400 `{"error": ...}` |
+| `repositories.NotFound` | 404 `not_found` |
+| `InvalidFilter` | 400 `invalid_filter` |
+| any other `RepositoryError` | 500 `db_error` ("Database error") |
+
+**400s answer `{"error": ...}`, not DRF's `{"detail": ...}`** — the shape the
+old `_bad_request` view helper returned, kept because clients already parse it.
+`_error_body` exists solely to rewrite the body; every other status keeps DRF's
+shape. So no view needs a try/except and no tier below needs to import DRF.
 
 ### Authentication
 
@@ -189,28 +243,38 @@ cd mysite
 The output path is relative to the CWD, so this lands at `mysite\schema.yml`
 (~65 KB).
 
-**Gotchas** (last run: 109 warnings / 33 unique, 236 errors / 6 unique — the file
-is still written; these are content complaints, not a failed run):
+**The run is clean — 0 warnings, 0 errors — and it must stay that way.** It was
+not: the viewsets are plain `viewsets.ViewSet` with no `serializer_class`, and
+marshmallow schemas are invisible to spectacular, so every operation once
+raised `unable to guess serializer` and emitted empty bodies. The `swagger/`
+package is what fixed it, and it is entirely hand-maintained:
 
-- `unable to guess serializer` on every viewset, because they are plain
-  `viewsets.ViewSet` with no `serializer_class` and marshmallow schemas
-  spectacular cannot introspect. `EmployeeTimeViewSet` (`views.py:460`) is the
-  worst — those endpoints emit empty/garbage bodies. Fix with `@extend_schema`.
-- Untyped path parameters (`employee_pk`, `schedule_pk`, `role_pk`, `id`) default
-  to `string`. Reported against `ShiftViewSet` (`views.py:663`) among others.
-  Fix by typing the converter (`<int:employee_pk>`) or annotating.
-- ~20 `operationId` collisions (e.g. `brands_retrieve` for both `/api/v1/brands`
-  GET and `/api/v1/brands/{id}` GET) — a direct consequence of the collection-level
-  PUT/GET routes sharing names with detail routes. Spectacular resolves them with
-  numeral suffixes, which makes generated clients ugly.
+- Every viewset carries its `extend_schema_view` decorator from `swagger/`.
+  A new viewset or action without one reintroduces the warning.
+- Request/response bodies are `inline_serializer`s written by hand to match
+  `components/payloads.py`. They are **not** generated, so a change to a
+  payload dict has to be mirrored there or the docs quietly go wrong.
+- Path parameters are declared explicitly via `swagger/common.py` (`BRAND_PK`,
+  `SCHEDULE_PK`, `ROLE_PK`, `EMPLOYEE_PK`, `ID`) instead of being inferred as
+  `string`, and filtered per-path so a mount only advertises the ids it has.
+- `by_mount` handles one view method serving two different operations
+  (`EmployeeViewSet.create` is a person at the top level, an employment under a
+  brand) — stacking two `@extend_schema` decorators cannot split by path.
+
+After touching views, routers or payloads, re-run the dump and confirm it still
+reports no warnings.
 
 ### Known gaps
 
-- `SPECTACULAR_SETTINGS` `TITLE` and `DESCRIPTION` are still the unedited
-  placeholders `'Your Project API'` / `'Your project description'`.
 - SQLAlchemy is pinned at 1.4.x while `repositories/base.py` is written in 2.0
   style; check compatibility before using 2.0-only APIs.
 - `manage.py init_db` runs `Base.metadata.create_all` and is create-only — it
   never alters an existing table, so a changed column needs a manual `ALTER`/drop.
 - `mysite/schemas.py` defines `PositionSchema`, `JobSchema` and `ShiftSchema`
-  that no view imports.
+  that nothing imports — Job and Shift responses are hand-built by
+  `components/payloads.py` instead.
+- `ShiftViewSet.update` still declares `employee_pk`, now unreachable: the
+  employee mount no longer binds PUT. The parameter is live on
+  `ShiftComponent.update`, so it was left in place.
+- The `swagger/` bodies duplicate `components/payloads.py` by hand; nothing
+  checks that the two agree.

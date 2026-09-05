@@ -1,0 +1,2075 @@
+openapi: 3.0.3
+info:
+  title: Brand Scheduling API
+  version: 1.0.0
+  description: |-
+    Shift scheduling across brands. A brand employs people through Jobs, opens a Schedule, and fills it with Roles; each Role holds Shifts, which are created unstaffed and staffed by a later PUT once the employee is eligible and free.
+
+    Two conventions worth knowing before reading the operations below:
+
+    - Dates accept `D/M/YYYY` as well as ISO `YYYY-MM-DD`, and times accept bare integer hours, so `8` means 08:00. Body keys are matched case-insensitively and several have aliases, noted per field.
+    - The two failure shapes differ: a 400 answers `{"error": "..."}` while a 404 answers `{"detail": "..."}`.
+paths:
+  /api/v1/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: |-
+        Check the credentials and return the REST Token
+        if the credentials are valid and authenticated.
+        Calls Django Auth login method to register User ID
+        in Django session framework
+
+        Accept the following POST parameters: username, password
+        Return the REST Framework Token Object's key.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWT'
+          description: ''
+  /api/v1/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      description: |-
+        Calls Django logout method and delete the Token object
+        assigned to the current User object.
+
+        Accepts/Returns nothing.
+      tags:
+      - auth
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/password/change/:
+    post:
+      operationId: auth_password_change_create
+      description: |-
+        Calls Django Auth SetPasswordForm save method.
+
+        Accepts the following POST parameters: new_password1, new_password2
+        Returns the success/fail message.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/password/reset/:
+    post:
+      operationId: auth_password_reset_create
+      description: |-
+        Calls Django Auth PasswordResetForm save method.
+
+        Accepts the following POST parameters: email
+        Returns the success/fail message.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordReset'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordReset'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordReset'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/password/reset/confirm/:
+    post:
+      operationId: auth_password_reset_confirm_create
+      description: |-
+        Password reset e-mail link is confirmed, therefore
+        this resets the user's password.
+
+        Accepts the following POST parameters: token, uid,
+            new_password1, new_password2
+        Returns the success/fail message.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/registration/:
+    post:
+      operationId: auth_registration_create
+      description: |-
+        Registers a new user.
+
+        Accepts the following POST parameters: username, email, password1, password2.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Register'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Register'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Register'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWT'
+          description: ''
+  /api/v1/auth/registration/resend-email/:
+    post:
+      operationId: auth_registration_resend_email_create
+      description: |-
+        Resends another email to an unverified email.
+
+        Accepts the following POST parameter: email.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResendEmailVerification'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ResendEmailVerification'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ResendEmailVerification'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/registration/verify-email/:
+    post:
+      operationId: auth_registration_verify_email_create
+      description: |-
+        Verifies the email associated with the provided key.
+
+        Accepts the following POST parameter: key.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEmail'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/VerifyEmail'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/VerifyEmail'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestAuthDetail'
+          description: ''
+  /api/v1/auth/token/refresh/:
+    post:
+      operationId: auth_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/auth/token/verify/:
+    post:
+      operationId: auth_token_verify_create
+      description: |-
+        Takes a token and indicates if it is valid.  This view provides no
+        information about a token's fitness for a particular use.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenVerify'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenVerify'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenVerify'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenVerify'
+          description: ''
+  /api/v1/auth/user/:
+    get:
+      operationId: auth_user_retrieve
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - auth
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetails'
+          description: ''
+    put:
+      operationId: auth_user_update
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserDetails'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserDetails'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserDetails'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetails'
+          description: ''
+    patch:
+      operationId: auth_user_partial_update
+      description: |-
+        Reads and updates UserModel fields
+        Accepts GET, PUT, PATCH methods.
+
+        Default accepted fields: username, first_name, last_name
+        Default display fields: pk, username, email, first_name, last_name
+        Read-only fields: pk, email
+
+        Returns UserModel fields.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetails'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetails'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserDetails'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserDetails'
+          description: ''
+  /api/v1/brands:
+    get:
+      operationId: brands_list
+      description: Every brand. An empty result is an empty list, not a 404.
+      summary: List brands
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Brand'
+          description: ''
+    post:
+      operationId: brands_create
+      description: Both `name` and `location` are required. `location` is NOT NULL
+        at the column, so omitting it is a 400 rather than a 500.
+      summary: Create a brand
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrandRequest'
+            examples:
+              CreateABrand:
+                value:
+                  name: Bean & Board
+                  location: 12 Nile St, Cairo
+                summary: Create a brand
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BrandRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BrandRequest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Brand'
+          description: Brand created.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                MissingLocation:
+                  value:
+                    error: location is required
+                  summary: Missing location
+          description: '`name` or `location` is missing or blank.'
+  /api/v1/brands/{brand_pk}/employees:
+    get:
+      operationId: brands_employees_list
+      description: Every employee, or just those employed by one brand when mounted
+        under a brand. An empty result is an empty list, not a 404.
+      summary: List employees
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Employee'
+          description: ''
+    post:
+      operationId: brands_employees_create
+      description: |-
+        Creates **only** the Job linking an existing person to this brand. It does not create the Employee - `employee_id` must name someone already recorded via `POST /api/v1/employees`, and an unknown id is a 404.
+
+        One person may hold more than one job at the same brand (Cook *and* Cashier), so employing someone already employed here is a normal 201 producing a second Job, not a conflict. The same person may equally hold jobs at several brands.
+      summary: Employ an existing person at a brand
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmployRequest'
+            examples:
+              EmployAsABarista:
+                value:
+                  employee_id: 7
+                  roles: Barista
+                summary: Employ as a barista
+              ExplicitStatus:
+                value:
+                  employee_id: 7
+                  role: Cashier
+                  status: active
+                summary: Explicit status
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/EmployRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/EmployRequest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employment'
+          description: The new Job, with the person it employs.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                NoEmployeeId:
+                  value:
+                    error: employee_id is required
+                  summary: No employee_id
+          description: '`employee_id` or `roles` is missing or malformed.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+              examples:
+                UnknownEmployee:
+                  value:
+                    detail: Employee 999 not found
+                  summary: Unknown employee
+          description: No such brand, or no such employee.
+  /api/v1/brands/{brand_pk}/employees/{id}:
+    get:
+      operationId: brands_employees_retrieve
+      description: 'Scoped to a brand they hold a job at when mounted under one: asking
+        brand 2 for an employee who only works at brand 1 is a 404.'
+      summary: Retrieve an employee
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No such employee, or none employed by this brand.
+    put:
+      operationId: brands_employees_update
+      description: 'Edits the Job, not the employee''s name. Send `roles` and/or `status`;
+        an empty body is a 400. Requires both ids in the URL: `PUT /api/v1/brands/{brand_pk}/employees/{id}`.
+        A `brand_id` or `employee_id` in the body is accepted but ignored - the URL
+        is authoritative.'
+      summary: Re-assign an employee's job at a brand
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEmploymentRequest'
+            examples:
+              Promote:
+                value:
+                  roles: Manager
+              Terminate:
+                value:
+                  status: terminated
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UpdateEmploymentRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UpdateEmploymentRequest'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employment'
+          description: The updated Job and employee.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                EmptyBody:
+                  value:
+                    error: Nothing to update; send 'roles' and/or 'status'
+                  summary: Empty body
+          description: Neither `roles` nor `status` was sent, or no brand is in the
+            URL.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: This employee holds no job at this brand.
+  /api/v1/brands/{brand_pk}/schedules:
+    get:
+      operationId: brands_schedules_list
+      description: 'Every schedule belonging to the brand in the URL. There is no
+        cross-brand listing: a schedule is only ever addressed under its brand.'
+      summary: List a brand's schedules
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+          description: ''
+    post:
+      operationId: brands_schedules_create
+      description: '`POST /api/v1/brands/{brand_pk}/schedules` - the only way to open
+        a schedule. `brand_id` is taken from the URL; a body key of that name is not
+        read.'
+      summary: Open a schedule for a brand
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleRequest'
+            examples:
+              D/M/YYYYDate:
+                value:
+                  starting_date: 7/9/2026
+                summary: D/M/YYYY date
+              ISODate:
+                value:
+                  starting_date: '2026-09-07'
+                summary: ISO date
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ScheduleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ScheduleRequest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+          description: Schedule created.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                UnparseableDate:
+                  value:
+                    error: starting_date is required
+                  summary: Unparseable date
+          description: '`starting_date` is missing or unparseable.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: The brand named in the URL does not exist.
+  /api/v1/brands/{brand_pk}/schedules/{id}:
+    get:
+      operationId: brands_schedules_retrieve
+      description: 'Scoped to the brand in the URL: asking the wrong brand for a real
+        schedule is a 404, not a hit.'
+      summary: Retrieve a schedule
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No schedule with this id, or not under this parent.
+  /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles:
+    get:
+      operationId: brands_schedules_roles_list
+      description: |-
+        Roles, always addressed under their schedule, itself under its brand.
+
+        The only mount is ``brands/<id>/schedules/<id>/roles``, so both
+        ``brand_pk`` and ``schedule_pk`` are always supplied and a role is only
+        ever looked up within the schedule that owns it: asking the wrong schedule
+        for a real role is a 404, not a hit.
+
+        ``brand_pk`` is captured by the URL and so is passed to every method by
+        DRF; a method omitting it would raise ``TypeError``. ``create`` also uses
+        it, to resolve the schedule within the brand.
+      summary: List the roles in a schedule
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Role'
+          description: ''
+    post:
+      operationId: brands_schedules_roles_create
+      description: '`POST /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles`.
+        `schedule_id` is taken from the URL; a body key of that name is ignored. The
+        schedule is resolved within the brand, so a schedule belonging to another
+        brand is a 404. The role''s `name` is later matched against a position name
+        when a shift under it is staffed.'
+      summary: Add a role to a schedule
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleRequest'
+            examples:
+              AddARole:
+                value:
+                  name: Barista
+                summary: Add a role
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RoleRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RoleRequest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+          description: Role created.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                MissingName:
+                  value:
+                    error: name is required
+                  summary: Missing name
+          description: '`name` is missing or blank.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: The brand named in the URL does not exist, or that brand has
+            no schedule with this id.
+  /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles/{id}:
+    get:
+      operationId: brands_schedules_roles_retrieve
+      description: 'Scoped to its schedule, and that schedule to its brand: asking
+        the wrong schedule - or the right schedule under the wrong brand - for a real
+        role is a 404.'
+      summary: Retrieve a role
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Role'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No role with this id in this schedule.
+  /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles/{role_pk}/shifts:
+    get:
+      operationId: brands_schedules_roles_shifts_list
+      description: 'Scoped to whichever parent the URL names, most specific first:
+        an employee listing is that person''s calendar, a role listing is one slot''s
+        history. Those are the only two mounts - there is no unscoped or schedule-level
+        shift listing.'
+      summary: List shifts
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: role_pk
+        schema:
+          type: integer
+        description: Primary key of the role in the URL.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shift'
+          description: ''
+    post:
+      operationId: brands_schedules_roles_shifts_create
+      description: 'Creates the slot with nobody on it: `POST /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles/{role_pk}/shifts`.
+        All three time fields are required, and `date` must fall inside the week the
+        schedule covers - `[starting_date, starting_date + 6 days]`, inclusive, anchored
+        to that schedule''s own start day whatever weekday it is. Sending `employee_id`
+        or `job_id` is a 400 - staff the slot with a follow-up PUT.'
+      summary: Create an unstaffed shift slot
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: role_pk
+        schema:
+          type: integer
+        description: Primary key of the role in the URL.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShiftCreateRequest'
+            examples:
+              IntegerHours:
+                value:
+                  date: 7/9/2026
+                  starting_time: 8
+                  finishing_time: 16
+                summary: Integer hours
+              ISODateAndHH:MM:
+                value:
+                  starting_date: '2026-09-07'
+                  start_time: 08:30
+                  ending_time: '16:30'
+                summary: ISO date and HH:MM
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ShiftCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ShiftCreateRequest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+          description: Slot created; `job_id` and `employee_id` are null.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                DateOutsideTheScheduleWeek:
+                  value:
+                    error: 2026-09-03 is outside the schedule week [2026-09-04, 2026-09-10]
+                  summary: Date outside the schedule week
+                StaffingRejectedOnCreate:
+                  value:
+                    error: A shift is created unassigned; PUT /api/v1/brands/1/schedules/1/roles/1/shifts/<shift_id>
+                      to staff it
+                  summary: Staffing rejected on create
+          description: A time field is missing or unparseable, the span is empty,
+            the date falls outside the schedule's week, `employee_id`/`job_id` was
+            sent, or no role is in the URL.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: The role or schedule named in the URL does not exist.
+  /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles/{role_pk}/shifts/{id}:
+    get:
+      operationId: brands_schedules_roles_shifts_retrieve
+      description: Scoped to whichever parents the URL names. A shift reached through
+        the wrong role, schedule or employee is a 404, not a 200 - the URL asserts
+        where the row lives.
+      summary: Retrieve a shift
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      - in: path
+        name: role_pk
+        schema:
+          type: integer
+        description: Primary key of the role in the URL.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No such shift, or not under these parents.
+    put:
+      operationId: brands_schedules_roles_shifts_update
+      description: |-
+        The one write on an existing slot: `PUT /api/v1/brands/{brand_pk}/schedules/{schedule_pk}/roles/{role_pk}/shifts/{id}`.
+
+        - **Retime**: send the complete time triple. A partial triple is a 400.
+        - **Staff**: send `employee_id` (or `job_id`). Four rules apply - the job must belong to the role's brand, its position must match the role's name, it must be `active`, and the employee must be free across every job they hold.
+        - **Unstaff**: send every staffing key you include as `null`. No rules apply; taking someone off a shift cannot create a clash.
+        - **Neither key**: the existing assignment is left alone.
+
+        A mix of null and non-null staffing keys is a 400, not a guess. Retiming and staffing in one call is validated against the new span.
+      summary: Retime, staff, or unstaff a shift
+      parameters:
+      - in: path
+        name: brand_pk
+        schema:
+          type: integer
+        description: Primary key of the brand in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      - in: path
+        name: role_pk
+        schema:
+          type: integer
+        description: Primary key of the role in the URL.
+        required: true
+      - in: path
+        name: schedule_pk
+        schema:
+          type: integer
+        description: Primary key of the schedule in the URL.
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShiftUpdateRequest'
+            examples:
+              StaffByEmployee:
+                value:
+                  employee_id: 1
+                summary: Staff by employee
+              RetimeAndStaffAtOnce:
+                value:
+                  date: 7/9/2026
+                  starting_time: 9
+                  finishing_time: 17
+                  employee_id: 1
+                summary: Retime and staff at once
+              Unstaff:
+                value:
+                  employee_id: null
+              ContradictoryStaffing:
+                value:
+                  employee_id: null
+                  job_id: 7
+                summary: Contradictory staffing
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ShiftUpdateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ShiftUpdateRequest'
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+          description: The updated shift.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                RetimedOutsideTheScheduleWeek:
+                  value:
+                    error: 2026-09-11 is outside the schedule week [2026-09-04, 2026-09-10]
+                  summary: Retimed outside the schedule week
+                ContradictoryStaffingRejected:
+                  value:
+                    error: 'Contradictory staffing: employee_id is null but job_id
+                      is 7. Send every one of job_id, employee_id as null to unstaff
+                      this shift, or send only the one that names who should work
+                      it'
+                  summary: Contradictory staffing rejected
+          description: Contradictory staffing (some keys null, others not), a partial
+            time triple, an empty span, a date outside the schedule's week, an ineligible
+            job, or an overlapping booking.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No such shift under the role named in the URL.
+  /api/v1/brands/{id}:
+    get:
+      operationId: brands_retrieve
+      summary: Retrieve a brand
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Brand'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No brand with this id.
+  /api/v1/employees:
+    get:
+      operationId: employees_list
+      description: Every employee, or just those employed by one brand when mounted
+        under a brand. An empty result is an empty list, not a 404.
+      summary: List employees
+      tags:
+      - employees
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Employee'
+          description: ''
+    post:
+      operationId: employees_create
+      description: Records that a person exists, from `name` alone. This is the only
+        place an Employee row is created, and it creates nothing else - the new person
+        works nowhere until they are employed via `POST /api/v1/brands/{brand_pk}/employees`.
+      summary: Create a person
+      tags:
+      - employees
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePersonRequest'
+            examples:
+              CreateAPerson:
+                value:
+                  name: Amina Hassan
+                summary: Create a person
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CreatePersonRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CreatePersonRequest'
+        required: true
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+          description: The new person. No Job is created.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                NoName:
+                  value:
+                    error: name is required
+                  summary: No name
+          description: '`name` is missing or blank.'
+  /api/v1/employees/{employee_pk}/shifts:
+    get:
+      operationId: employees_shifts_list
+      description: 'Scoped to whichever parent the URL names, most specific first:
+        an employee listing is that person''s calendar, a role listing is one slot''s
+        history. Those are the only two mounts - there is no unscoped or schedule-level
+        shift listing.'
+      summary: List shifts
+      parameters:
+      - in: path
+        name: employee_pk
+        schema:
+          type: integer
+        description: Primary key of the employee in the URL.
+        required: true
+      tags:
+      - employees
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Shift'
+          description: ''
+  /api/v1/employees/{employee_pk}/shifts/{id}:
+    get:
+      operationId: employees_shifts_retrieve
+      description: Scoped to whichever parents the URL names. A shift reached through
+        the wrong role, schedule or employee is a 404, not a 200 - the URL asserts
+        where the row lives.
+      summary: Retrieve a shift
+      parameters:
+      - in: path
+        name: employee_pk
+        schema:
+          type: integer
+        description: Primary key of the employee in the URL.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      tags:
+      - employees
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Shift'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No such shift, or not under these parents.
+  /api/v1/employees/{employee_pk}/times:
+    get:
+      operationId: employees_times_list
+      description: '`busy` is the employee''s shifts across every job they hold. `free`
+        is the complement of those blocks within the 00:00-23:59 window, reported
+        only for days the employee already works.'
+      summary: An employee's booked and free time
+      parameters:
+      - in: path
+        name: employee_pk
+        schema:
+          type: integer
+        description: Primary key of the employee in the URL.
+        required: true
+      - in: query
+        name: mode
+        schema:
+          type: string
+          enum:
+          - busy
+          - free
+          - free,busy
+        description: Which blocks to compute, comma-separated. Omit for both. Unknown
+          values are a 400.
+      tags:
+      - employees
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeTimes'
+              examples:
+                BothModes:
+                  value:
+                    employee_id: 1
+                    busy:
+                    - shift_id: 1
+                      date: '2026-09-07'
+                      starting_time: 08:00:00
+                      finishing_time: '16:00:00'
+                      role: Manager
+                      brand: Bean & Board
+                    free:
+                    - date: '2026-09-07'
+                      starting_time: 00:00:00
+                      finishing_time: 08:00:00
+                    - date: '2026-09-07'
+                      starting_time: '16:00:00'
+                      finishing_time: '23:59:00'
+                  summary: Both modes
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              examples:
+                UnknownMode:
+                  value:
+                    error: mode 'nope' is not valid; expected one of busy, free
+                  summary: Unknown mode
+          description: '`mode` names something other than free or busy.'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No employee with this id.
+  /api/v1/employees/{id}:
+    get:
+      operationId: employees_retrieve
+      description: 'Scoped to a brand they hold a job at when mounted under one: asking
+        brand 2 for an employee who only works at brand 1 is a 404.'
+      summary: Retrieve an employee
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: Primary key of the addressed row.
+        required: true
+      tags:
+      - employees
+      security:
+      - jwtHeaderAuth: []
+      - jwtCookieAuth: []
+      - tokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Employee'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+          description: No such employee, or none employed by this brand.
+components:
+  schemas:
+    Brand:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        location:
+          type: string
+      required:
+      - id
+      - location
+      - name
+    BrandRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        location:
+          type: string
+          maxLength: 255
+      required:
+      - location
+      - name
+    BusyBlock:
+      type: object
+      properties:
+        shift_id:
+          type: integer
+        date:
+          type: string
+          format: date
+          nullable: true
+        starting_time:
+          type: string
+          format: time
+        finishing_time:
+          type: string
+          format: time
+        role:
+          type: string
+          nullable: true
+        brand:
+          type: string
+          nullable: true
+      required:
+      - brand
+      - date
+      - finishing_time
+      - role
+      - shift_id
+      - starting_time
+    CreatePersonRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Required. The whole payload.
+          maxLength: 100
+      required:
+      - name
+    EmployRequest:
+      type: object
+      properties:
+        employee_id:
+          type: integer
+          description: 'Required. An **existing** employee, created beforehand via
+            `POST /api/v1/employees`. Alias: `employee`.'
+        roles:
+          type: string
+          description: 'Required. The position to employ them in, created on first
+            use. Aliases: `role`, `position`.'
+          maxLength: 100
+        status:
+          type: string
+          description: Optional; defaults to `active`.
+          maxLength: 50
+      required:
+      - employee_id
+      - roles
+    Employee:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+      required:
+      - id
+      - name
+    EmployeeTimes:
+      type: object
+      properties:
+        busy:
+          type: array
+          items:
+            $ref: '#/components/schemas/BusyBlock'
+        free:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeBlock'
+        employee_id:
+          type: integer
+      required:
+      - employee_id
+    Employment:
+      type: object
+      properties:
+        employee:
+          $ref: '#/components/schemas/Employee'
+        job:
+          $ref: '#/components/schemas/Job'
+      required:
+      - employee
+      - job
+    FreeBlock:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+          nullable: true
+        starting_time:
+          type: string
+          format: time
+        finishing_time:
+          type: string
+          format: time
+      required:
+      - date
+      - finishing_time
+      - starting_time
+    JWT:
+      type: object
+      description: Serializer for JWT authentication.
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/UserDetails'
+      required:
+      - access
+      - refresh
+      - user
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        brand_id:
+          type: integer
+        employee_id:
+          type: integer
+        position_id:
+          type: integer
+        role:
+          type: string
+          nullable: true
+          description: The position's name.
+        status:
+          type: string
+      required:
+      - brand_id
+      - employee_id
+      - id
+      - position_id
+      - role
+      - status
+    Login:
+      type: object
+      properties:
+        username:
+          type: string
+        email:
+          oneOf:
+          - type: string
+            format: email
+          - type: string
+            maxLength: 0
+        password:
+          type: string
+      required:
+      - password
+    NotFoundError:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    PasswordChange:
+      type: object
+      properties:
+        new_password1:
+          type: string
+          maxLength: 128
+        new_password2:
+          type: string
+          maxLength: 128
+      required:
+      - new_password1
+      - new_password2
+    PasswordReset:
+      type: object
+      description: Serializer for requesting a password reset e-mail.
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    PasswordResetConfirm:
+      type: object
+      description: Serializer for confirming a password reset attempt.
+      properties:
+        new_password1:
+          type: string
+          maxLength: 128
+        new_password2:
+          type: string
+          maxLength: 128
+        uid:
+          type: string
+        token:
+          type: string
+      required:
+      - new_password1
+      - new_password2
+      - token
+      - uid
+    PatchedUserDetails:
+      type: object
+      description: User model w/o password
+      properties:
+        pk:
+          type: integer
+          readOnly: true
+          title: ID
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+    Register:
+      type: object
+      properties:
+        username:
+          type: string
+          maxLength: 150
+          minLength: 1
+        email:
+          type: string
+          format: email
+        password1:
+          type: string
+          writeOnly: true
+        password2:
+          type: string
+          writeOnly: true
+      required:
+      - password1
+      - password2
+      - username
+    ResendEmailVerification:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+    RestAuthDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+          readOnly: true
+      required:
+      - detail
+    Role:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+        schedule_id:
+          type: integer
+      required:
+      - id
+      - name
+      - schedule_id
+    RoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+      required:
+      - name
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        brand_id:
+          type: integer
+        starting_date:
+          type: string
+          format: date
+      required:
+      - brand_id
+      - id
+      - starting_date
+    ScheduleRequest:
+      type: object
+      properties:
+        starting_date:
+          type: string
+          description: 'Required. Accepts D/M/YYYY or YYYY-MM-DD. Alias: `date`.'
+      required:
+      - starting_date
+    Shift:
+      type: object
+      properties:
+        shift_id:
+          type: integer
+        job_id:
+          type: integer
+          nullable: true
+        employee_id:
+          type: integer
+          nullable: true
+        employee:
+          type: string
+          nullable: true
+        role_id:
+          type: integer
+        role:
+          type: string
+          nullable: true
+        schedule_id:
+          type: integer
+          nullable: true
+        brand_id:
+          type: integer
+          nullable: true
+        brand:
+          type: string
+          nullable: true
+        date:
+          type: string
+          format: date
+          nullable: true
+        starting_time:
+          type: string
+          format: time
+          nullable: true
+        finishing_time:
+          type: string
+          format: time
+          nullable: true
+      required:
+      - brand
+      - brand_id
+      - date
+      - employee
+      - employee_id
+      - finishing_time
+      - job_id
+      - role
+      - role_id
+      - schedule_id
+      - shift_id
+      - starting_time
+    ShiftCreateRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          description: 'Required. D/M/YYYY or YYYY-MM-DD. Must fall inside the schedule''s
+            week - `[starting_date, starting_date + 6 days]`, inclusive. Alias: `starting_date`.'
+        starting_time:
+          type: string
+          description: 'Required. Bare integer hours are accepted, so `8` means 08:00
+            and `24` means 23:59. Alias: `start_time`.'
+        finishing_time:
+          type: string
+          description: 'Required, and must be after `starting_time`. Bare integer
+            hours are accepted, so `8` means 08:00 and `24` means 23:59. Aliases:
+            `finish_time`, `ending_time`.'
+      required:
+      - date
+      - finishing_time
+      - starting_time
+    ShiftUpdateRequest:
+      type: object
+      properties:
+        date:
+          type: string
+          description: 'Optional, but the whole time triple must be valid if any of
+            the three is sent, and the new date must fall inside the schedule''s week
+            - `[starting_date, starting_date + 6 days]`, inclusive. Alias: `starting_date`.'
+        starting_time:
+          type: string
+          description: 'Optional. Bare integer hours are accepted, so `8` means 08:00
+            and `24` means 23:59. Alias: `start_time`.'
+        finishing_time:
+          type: string
+          description: 'Optional. Bare integer hours are accepted, so `8` means 08:00
+            and `24` means 23:59. Aliases: `finish_time`, `ending_time`.'
+        employee_id:
+          type: integer
+          nullable: true
+          description: Staffs the shift with this employee's job at the role's brand.
+            Send explicit `null` to unstaff.
+        job_id:
+          type: integer
+          nullable: true
+          description: Staffs the shift with this job directly; takes precedence over
+            `employee_id`, which must agree if also sent.
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          writeOnly: true
+      required:
+      - access
+      - refresh
+    TokenVerify:
+      type: object
+      properties:
+        token:
+          type: string
+          writeOnly: true
+      required:
+      - token
+    UpdateEmploymentRequest:
+      type: object
+      properties:
+        roles:
+          type: string
+          description: 'New position, created on first use. Aliases: `role`, `position`.'
+          maxLength: 100
+        status:
+          type: string
+          description: New job status, e.g. `active` or `terminated`.
+          maxLength: 50
+    UserDetails:
+      type: object
+      description: User model w/o password
+      properties:
+        pk:
+          type: integer
+          readOnly: true
+          title: ID
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+      required:
+      - email
+      - pk
+      - username
+    ValidationError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+      - error
+    VerifyEmail:
+      type: object
+      properties:
+        key:
+          type: string
+          writeOnly: true
+      required:
+      - key
+  securitySchemes:
+    jwtCookieAuth:
+      type: apiKey
+      in: cookie
+      name: access
+    jwtHeaderAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "Token"

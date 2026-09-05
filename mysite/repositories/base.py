@@ -86,6 +86,7 @@ class BaseRepository(Generic[ModelT]):
 
     # ----------------------------------------------------------------- write
 
+    
     def create(self, **values: Any) -> ModelT:
         obj = self.model(**values)
         self.session.add(obj)
